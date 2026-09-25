@@ -1,0 +1,18 @@
+/* Self-hosted Inter/Roboto (latin subset, variable-font files) so the app
+   renders correctly with no internet access — required for the Raspberry Pi
+   desktop build, which may run unattended without a network connection. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/fonts/inter-variable-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Roboto';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/roboto-variable-latin.woff2') format('woff2');
+}

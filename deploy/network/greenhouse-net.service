@@ -1,0 +1,13 @@
+[Unit]
+Description=Greenhouse network fallback (MAgSO Wi-Fi > router > hotspot)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/greenhouse-net
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

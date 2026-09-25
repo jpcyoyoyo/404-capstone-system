@@ -1,0 +1,38 @@
+# Cloud replica on the VPS (₱549/month plan): read-mostly copy of the greenhouse data for
+# viewing away from the greenhouse network. The Pi pushes to /sync/ingest; nobody commands
+# hardware from here while capability remote_commands is false.
+#
+#   cp cloud.env.example cloud.env   # fill in; GH_JWT_SECRET must equal the Pi's
+#   docker compose up -d --build
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    env_file: cloud.env
+    command: ["--innodb-buffer-pool-size=256M", "--character-set-server=utf8mb4", "--default-time-zone=+00:00"]
+    volumes: [mysql:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      retries: 12
+
+  api:
+    build: { context: ../.., dockerfile: controller/Dockerfile }
+    restart: unless-stopped
+    env_file: cloud.env
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    env_file: cloud.env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [api]
+
+volumes:
+  mysql: {}
+  caddy: {}

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gh1.local/schemas/alert.json",
+  "title": "Alert",
+  "description": "Published on gh/{gh}/alert.",
+  "type": "object",
+  "required": [
+    "id",
+    "severity",
+    "source",
+    "code",
+    "message",
+    "raised_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "severity": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "source": {
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "raised_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolved_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "acknowledged_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "acknowledged_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

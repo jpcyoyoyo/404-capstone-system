@@ -1,0 +1,17 @@
+[Unit]
+Description=Greenhouse REST API (mobile app, kiosk)
+After=greenhouse-control.service
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=greenhouse
+Group=greenhouse
+EnvironmentFile=/etc/greenhouse/greenhouse.env
+WorkingDirectory=/opt/greenhouse/controller
+ExecStart=/opt/greenhouse/venv/bin/greenhouse api --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

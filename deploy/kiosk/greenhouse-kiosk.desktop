@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Greenhouse kiosk
+Comment=Full-screen greenhouse status display
+Exec=/opt/greenhouse/deploy/kiosk/kiosk.sh
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,24 @@
+# /etc/mosquitto/greenhouse.acl — who may publish/subscribe to what.
+# Accounts are created by deploy/pi-setup.sh with mosquitto_passwd.
+
+# Controller services (sensors, control, api, sync share one account)
+user greenhouse
+topic readwrite gh/#
+
+# Sensing nodes: publish only their own raw readings and status
+user node_a
+topic write gh/gh1/node/node_a/raw
+topic readwrite gh/gh1/node/node_a/status
+user node_b
+topic write gh/gh1/node/node_b/raw
+topic readwrite gh/gh1/node/node_b/status
+
+# Mobile app and kiosk: read-only. Commands go through the REST API, never MQTT.
+user app
+topic read gh/gh1/zone/#
+topic read gh/gh1/actuator/+/state
+topic read gh/gh1/actuator/+/ack
+topic read gh/gh1/alert
+topic read gh/gh1/status
+topic read gh/gh1/node/+/status
+topic read gh/gh1/config/changed

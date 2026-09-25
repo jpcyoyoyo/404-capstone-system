@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gh1.local/schemas/status.json",
+  "title": "ControllerStatus",
+  "description": "Published retained on gh/{gh}/status. The last will publishes {online:false}.",
+  "type": "object",
+  "required": [
+    "online"
+  ],
+  "properties": {
+    "online": {
+      "type": "boolean"
+    },
+    "service": {
+      "type": "string"
+    },
+    "ts": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "active_stage": {
+      "type": "string"
+    },
+    "network_mode": {
+      "type": "string"
+    },
+    "zones": {
+      "type": "object"
+    }
+  }
+}

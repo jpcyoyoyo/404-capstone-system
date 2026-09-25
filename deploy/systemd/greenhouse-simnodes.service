@@ -1,0 +1,17 @@
+[Unit]
+Description=Simulated sensing nodes (bench testing without ESP boards; do not enable in the greenhouse)
+After=mosquitto.service
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=greenhouse
+Group=greenhouse
+EnvironmentFile=/etc/greenhouse/greenhouse.env
+WorkingDirectory=/opt/greenhouse/controller
+ExecStart=/opt/greenhouse/venv/bin/greenhouse sim-nodes --interval 30
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Greenhouse cloud replication
+After=greenhouse-api.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/greenhouse/greenhouse.env
+
+[Service]
+Type=simple
+User=greenhouse
+Group=greenhouse
+EnvironmentFile=/etc/greenhouse/greenhouse.env
+WorkingDirectory=/opt/greenhouse/controller
+ExecStart=/opt/greenhouse/venv/bin/greenhouse sync
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

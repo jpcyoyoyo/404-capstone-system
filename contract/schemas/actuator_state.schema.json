@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gh1.local/schemas/actuator_state.json",
+  "title": "ActuatorState",
+  "description": "Published retained on gh/{gh}/actuator/{id}/state.",
+  "type": "object",
+  "required": [
+    "actuator_id",
+    "on",
+    "mode",
+    "ts"
+  ],
+  "properties": {
+    "actuator_id": {
+      "type": "string"
+    },
+    "on": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "AUTO",
+        "MANUAL"
+      ]
+    },
+    "manual_until": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lockout": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Why the actuator cannot currently be turned on, if it can't"
+    },
+    "installed": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "since": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

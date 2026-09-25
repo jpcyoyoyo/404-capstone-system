@@ -1,0 +1,14 @@
+[Unit]
+Description=MySQL 8 for the greenhouse (Docker container)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/greenhouse/deploy/mysql
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

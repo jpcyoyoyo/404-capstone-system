@@ -1,0 +1,5 @@
+# HTTPS with an automatic Let's Encrypt certificate for GH_DOMAIN.
+{$GH_DOMAIN} {
+	encode gzip
+	reverse_proxy api:8000
+}

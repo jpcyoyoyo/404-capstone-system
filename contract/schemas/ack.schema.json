@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gh1.local/schemas/ack.json",
+  "title": "Ack",
+  "description": "Published on gh/{gh}/actuator/{id}/ack and returned by POST /actuator/{id}/command.",
+  "type": "object",
+  "required": [
+    "cmd_id",
+    "status",
+    "ts"
+  ],
+  "properties": {
+    "cmd_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ACCEPTED",
+        "REJECTED",
+        "EXPIRED",
+        "SIMULATED"
+      ]
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

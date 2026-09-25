@@ -1,0 +1,345 @@
+/* SmartGreenhouse global design system */
+
+:root {
+  --sg-font: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html, body, ion-app {
+  font-family: var(--sg-font);
+}
+
+/* Body copy scales with the Font Size setting; headline/number classes opt in explicitly. */
+ion-content {
+  font-size: calc(1em * var(--sg-font-scale, 1));
+}
+
+/* === Layout cards === */
+.sg-card {
+  background: var(--sg-card);
+  border-radius: 12px;
+  border: 1px solid var(--sg-border);
+  padding: var(--sg-card-pad, 12px 14px);
+  margin-bottom: 12px;
+}
+
+.sg-elevated {
+  background: var(--sg-elevated);
+  border-radius: 10px;
+  border: 1px solid var(--sg-border);
+}
+
+/* === Typography === */
+.sg-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 10px;
+}
+
+.sg-metric-large {
+  font-size: calc(36px * var(--sg-font-scale, 1));
+  font-weight: 700;
+  color: var(--sg-text);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.sg-metric-medium {
+  font-size: calc(22px * var(--sg-font-scale, 1));
+  font-weight: 700;
+  color: var(--sg-text);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.sg-label {
+  font-size: 12px;
+  color: var(--sg-muted);
+}
+
+.sg-value {
+  font-size: 14px;
+  color: var(--sg-text);
+  font-weight: 500;
+}
+
+/* === Status pills === */
+.sg-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sg-pill-ok    { background: rgba(34,197,94,0.15);  color: #22c55e; border: 1px solid rgba(34,197,94,0.3);  }
+.sg-pill-warn  { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+.sg-pill-crit  { background: rgba(239,68,68,0.15);  color: #ef4444; border: 1px solid rgba(239,68,68,0.3);  }
+.sg-pill-info  { background: rgba(59,130,246,0.15); color: #3b82f6; border: 1px solid rgba(59,130,246,0.3); }
+.sg-pill-idle  { background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.25); }
+.sg-pill-auto  { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); }
+
+/* === Flex utils === */
+.sg-row         { display: flex; align-items: center; }
+.sg-row-between { display: flex; align-items: center; justify-content: space-between; }
+.sg-col         { display: flex; flex-direction: column; }
+.sg-gap-4  { gap: 4px; }
+.sg-gap-8  { gap: 8px; }
+.sg-gap-12 { gap: 12px; }
+
+/* === Banners === */
+.sg-banner-warn {
+  background: rgba(245,158,11,0.12);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #f59e0b;
+  margin-bottom: 12px;
+}
+
+.sg-banner-crit {
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sg-banner-offline {
+  background: rgba(59,130,246,0.1);
+  border: 1px solid rgba(59,130,246,0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #3b82f6;
+  margin-bottom: 12px;
+}
+
+/* === Chart placeholder === */
+.sg-chart-ph {
+  background: var(--sg-elevated);
+  border-radius: 10px;
+  border: 1px solid var(--sg-border);
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--sg-muted);
+  font-size: 12px;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Simulated chart lines */
+.sg-chart-ph::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg, transparent, transparent 39px, rgba(255,255,255,0.03) 40px
+  );
+}
+
+/* === Timeline === */
+.sg-timeline-entry {
+  border-left: 2px solid var(--sg-border);
+  padding-left: 14px;
+  margin-bottom: 12px;
+  position: relative;
+}
+.sg-timeline-entry::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sg-green);
+}
+.sg-timeline-entry.warn::before { background: var(--sg-amber); }
+.sg-timeline-entry.crit::before { background: var(--sg-red); }
+
+/* === Metric tile (dashboard horizontal scroll) === */
+.sg-metric-tile {
+  background: var(--sg-elevated);
+  border-radius: 10px;
+  border: 1px solid var(--sg-border);
+  padding: 10px 12px;
+  min-width: 128px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.sg-metric-tile:active { border-color: #22c55e; }
+
+/* === KPI card === */
+.sg-kpi {
+  flex: 1;
+  background: var(--sg-elevated);
+  border-radius: 10px;
+  border: 1px solid var(--sg-border);
+  padding: 10px 8px;
+  text-align: center;
+  cursor: pointer;
+}
+
+/* === Actuator pill (tappable) === */
+.sg-act-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--sg-elevated);
+  border: 1px solid var(--sg-border);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 12px;
+  color: var(--sg-text);
+  cursor: pointer;
+  transition: border-color 0.15s;
+  white-space: nowrap;
+}
+.sg-act-pill:active { border-color: #22c55e; }
+
+/* === Settings tab item === */
+.sg-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--sg-border);
+}
+.sg-settings-row:last-child { border-bottom: none; }
+
+/* === Icon chip (rounded square icon container, mockup style) === */
+.sg-icon-chip {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 16px;
+}
+
+/* === Snapshot tile (2-col grid metric card w/ icon + bar) === */
+.sg-snap-tile {
+  background: var(--sg-elevated);
+  border-radius: 12px;
+  border: 1px solid var(--sg-border);
+  padding: 12px;
+}
+
+/* === Linear progress bar === */
+.sg-bar-track {
+  height: 6px;
+  background: rgba(148,163,184,0.18);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.sg-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+/* === Filter / segmented pill group (Alerts: All / High / Medium / Info) === */
+.sg-filter-pill {
+  display: inline-flex; align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--sg-border);
+  background: var(--sg-elevated);
+  color: var(--sg-muted);
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.sg-filter-pill.active {
+  background: var(--sg-green);
+  border-color: var(--sg-green);
+  color: #06210f;
+}
+
+/* === Power-flow node (Energy screen) === */
+.sg-flow-node {
+  background: var(--sg-elevated);
+  border-radius: 12px;
+  padding: 12px 16px;
+  text-align: center;
+  min-width: 84px;
+  border: 1px solid var(--sg-border);
+}
+.sg-flow-node.active {
+  border-color: var(--sg-green);
+  box-shadow: 0 0 0 1px rgba(34,197,94,0.35);
+}
+.sg-flow-arrow { color: var(--sg-muted); font-size: 14px; flex-shrink: 0; }
+
+/* === Stage / mode select card (Controls, Schedules, QuickSetup) === */
+.sg-select-card {
+  flex: 1;
+  background: var(--sg-elevated);
+  border: 1px solid var(--sg-border);
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.sg-select-card.active {
+  background: rgba(34,197,94,0.12);
+  border-color: var(--sg-green);
+}
+
+/* === Toggle row (Controls: device on/off list) === */
+.sg-toggle-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sg-border);
+}
+.sg-toggle-row:last-child { border-bottom: none; }
+
+/* === KPI card with trend (History weekly performance) === */
+.sg-kpi-trend {
+  flex: 1;
+  background: var(--sg-elevated);
+  border: 1px solid var(--sg-border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+/* === Critical alert banner — solid (Alerts/Home top banner w/ Fix Now) === */
+.sg-banner-solid-crit {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #fff;
+}
+
+/* === Ionic component overrides === */
+ion-content { --background: var(--sg-bg); }
+ion-toolbar  { --background: var(--ion-toolbar-background); --color: var(--sg-text); --border-color: var(--sg-border); }
+ion-tab-bar  { --background: var(--ion-tab-bar-background); border-top: 1px solid var(--sg-border); }
+ion-tab-button { --color: var(--sg-dim); --color-selected: var(--sg-green); }
+ion-card     { --background: var(--sg-card); margin: 0 0 12px; }
+ion-item     { --background: var(--sg-card); --border-color: var(--sg-border); --color: var(--sg-text); }
+ion-list     { background: var(--sg-card) !important; }
+ion-label    { color: var(--sg-text) !important; }
+ion-segment  { --background: var(--sg-elevated); border-radius: 8px; }
+ion-segment-button { --color: var(--sg-muted); --color-checked: var(--sg-text); --indicator-color: var(--sg-green); }
+ion-toggle   { --track-background: var(--sg-border); --handle-background-checked: var(--sg-green); }
+ion-badge    { font-size: 10px; }
+ion-back-button { --color: var(--sg-text); }

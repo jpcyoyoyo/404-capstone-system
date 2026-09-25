@@ -1,0 +1,180 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Greenhouse registry — the single source of truth for what exists and where it
+# is wired. The controller reads every pin, channel and threshold default from
+# this file; nothing hardware-specific is hard-coded in Python or TypeScript.
+#
+# `installed: false` means the part is not on site yet. The controller skips it
+# and the app shows it as "Not installed" rather than as a fault.
+#
+# Items marked `# CONFLICT` are open questions from the Production Plan's
+# "Pin map for the registry" section. Settle them here, once.
+# ─────────────────────────────────────────────────────────────────────────────
+version: 1
+
+greenhouse:
+  id: gh1
+  name: MAgSO Smart Greenhouse
+  location: Tomas Oppus, Southern Leyte
+  timezone: Asia/Manila
+
+capabilities:
+  energy: false          # solar/battery out of scope for the study period (decision 3)
+  push: false            # FCM push notifications — slice D
+  remote_commands: false # cloud relays commands to the Pi — slice D
+
+zones:
+  - { id: 0, name: Reservoir & controller, description: "Shared sensors at the controller and fertigation reservoir" }
+  - { id: 1, name: Zone 1, description: Node A (ESP8266) }
+  - { id: 2, name: Zone 2, description: Node B (ESP32) }
+
+nodes:
+  - { id: node_a, board: esp8266, zone: 1, publish_interval_s: 30 }
+  - { id: node_b, board: esp32,   zone: 2, publish_interval_s: 30 }
+
+growth_stages:
+  - { id: seedling, name: Seedling, sequence: 1, irrigation_mode: fog,       description: "Fogging/misting, high humidity" }
+  - { id: growth,   name: Growth,   sequence: 2, irrigation_mode: drip,      description: Balanced drip irrigation }
+  - { id: mature,   name: Mature,   sequence: 3, irrigation_mode: sprinkler, description: Pressurised sprinklers }
+
+# Petchay reference values (Implementation Plan §8.1). Validate against MAgSO's
+# agronomic guidance. These are DEFAULTS only: after first start the database
+# copy is authoritative and is edited from the app.
+thresholds:
+  deadbands:        # Integration Plan §3.3
+    soil_moisture: 5
+    temperature: 1.5
+    humidity: 5
+    co2: 50
+    ph: 0.2
+    ec: 0.2
+    light: 1000
+  seedling:
+    soil_moisture: { min: 70,   max: 80 }
+    temperature:   { min: 22,   max: 28 }
+    humidity:      { min: 70,   max: 85 }
+    light:         { min: 8000, max: 40000 }
+    co2:           { min: 400,  max: 800 }
+    ph:            { min: 5.8,  max: 6.2 }
+    ec:            { min: 0.8,  max: 1.2 }
+  growth:
+    soil_moisture: { min: 60,    max: 75 }
+    temperature:   { min: 20,    max: 30 }
+    humidity:      { min: 60,    max: 80 }
+    light:         { min: 12000, max: 40000 }
+    co2:           { min: 400,   max: 1000 }
+    ph:            { min: 5.5,   max: 6.5 }
+    ec:            { min: 1.2,   max: 1.8 }
+  mature:
+    soil_moisture: { min: 55,    max: 70 }
+    temperature:   { min: 20,    max: 32 }
+    humidity:      { min: 55,    max: 75 }
+    light:         { min: 15000, max: 40000 }
+    co2:           { min: 400,   max: 1000 }
+    ph:            { min: 5.5,   max: 6.5 }
+    ec:            { min: 1.5,   max: 2.0 }
+
+control:
+  cycle_s: 30
+  photoperiod: { start: "06:00", end: "18:00" }   # supplemental lighting only inside this window
+  stale_after_cycles: 3
+  co2_warmup_s: 180
+  fertigation:
+    auto_enabled: false        # needs the EC sensor; manual dispense works regardless
+    dose_g: 20
+    min_interval_h: 6
+    max_dose_time_s: 120
+    tolerance_g: 2
+  reservoir_min_level_pct: 15
+  manual_override_max_s: 1800  # water-moving manual commands expire after 30 min (§9.8)
+  command_expiry_s: 60
+
+# ── Sensors ──────────────────────────────────────────────────────────────────
+# One entry per measured quantity. A DHT22 therefore has two entries
+# (temperature + humidity) that share a `device`.
+# host: node_a | node_b | pi.   calibration: none | two_point | dry_wet | scale
+sensor_defaults:
+  plausible:
+    temperature:       [0, 55]
+    humidity:          [0, 100]
+    soil_moisture:     [0, 100]
+    light:             [0, 100000]
+    co2:               [300, 5000]
+    ph:                [0, 14]
+    ec:                [0, 10]
+    water_temperature: [0, 50]
+    water_level:       [0, 100]
+    water_flow:        [0, 60]
+    hopper_weight:     [-50, 10000]
+  units:
+    temperature: "°C"
+    humidity: "%"
+    soil_moisture: "%"
+    light: lux
+    co2: ppm
+    ph: pH
+    ec: mS/cm
+    water_temperature: "°C"
+    water_level: "%"
+    water_flow: L/min
+    hopper_weight: g
+    float_switch: state
+
+sensors:
+  # Zone 1 — Node A (ESP8266)
+  - { id: temp_z1_01, type: temperature,   zone: 1, host: node_a, device: dht_z1_01, pin: D5 }
+  - { id: hum_z1_01,  type: humidity,      zone: 1, host: node_a, device: dht_z1_01, pin: D5 }
+  - { id: temp_z1_02, type: temperature,   zone: 1, host: node_a, device: dht_z1_02, pin: D6 }
+  - { id: hum_z1_02,  type: humidity,      zone: 1, host: node_a, device: dht_z1_02, pin: D6 }
+  - { id: temp_z1_03, type: temperature,   zone: 1, host: node_a, device: dht_z1_03, pin: D7 }
+  - { id: hum_z1_03,  type: humidity,      zone: 1, host: node_a, device: dht_z1_03, pin: D7 }
+  - { id: soil_z1_01, type: soil_moisture, zone: 1, host: node_a, device: ads1115@0x48, channel: A0, calibration: dry_wet }
+  - { id: soil_z1_02, type: soil_moisture, zone: 1, host: node_a, device: ads1115@0x48, channel: A1, calibration: dry_wet }
+  - { id: soil_z1_03, type: soil_moisture, zone: 1, host: node_a, device: ads1115@0x48, channel: A2, calibration: dry_wet }
+  - { id: light_z1_01, type: light,        zone: 1, host: node_a, device: bh1750@0x23 }
+  # Zone 2 — Node B (ESP32)
+  # CONFLICT 1: DHT pins per Assembly A9 (GPIO25/26/27), not Sheet 4 (16/17/5).
+  - { id: temp_z2_01, type: temperature,   zone: 2, host: node_b, device: dht_z2_01, pin: GPIO25 }
+  - { id: hum_z2_01,  type: humidity,      zone: 2, host: node_b, device: dht_z2_01, pin: GPIO25 }
+  - { id: temp_z2_02, type: temperature,   zone: 2, host: node_b, device: dht_z2_02, pin: GPIO26 }
+  - { id: hum_z2_02,  type: humidity,      zone: 2, host: node_b, device: dht_z2_02, pin: GPIO26 }
+  - { id: temp_z2_03, type: temperature,   zone: 2, host: node_b, device: dht_z2_03, pin: GPIO27 }
+  - { id: hum_z2_03,  type: humidity,      zone: 2, host: node_b, device: dht_z2_03, pin: GPIO27 }
+  - { id: soil_z2_01, type: soil_moisture, zone: 2, host: node_b, device: ads1115@0x48, channel: A0, calibration: dry_wet }
+  - { id: soil_z2_02, type: soil_moisture, zone: 2, host: node_b, device: ads1115@0x48, channel: A1, calibration: dry_wet }
+  - { id: soil_z2_03, type: soil_moisture, zone: 2, host: node_b, device: ads1115@0x48, channel: A2, calibration: dry_wet }
+  - { id: light_z2_01, type: light,        zone: 2, host: node_b, device: bh1750@0x5C }
+  # Zone 0 — controller and reservoir
+  - { id: co2_01,    type: co2,               zone: 0, host: pi, device: mhz19b, port: /dev/ttyAMA0, interval_s: 60 }
+  - { id: ph_01,     type: ph,                zone: 0, host: pi, device: ads1115@0x48, channel: A0, divider: 2.0, calibration: two_point, interval_s: 300 }
+  - { id: ec_01,     type: ec,                zone: 0, host: pi, device: ads1115@0x48, channel: A1, calibration: two_point, interval_s: 300, installed: false }
+  - { id: wtemp_01,  type: water_temperature, zone: 0, host: pi, device: ds18b20, pin: GPIO18, interval_s: 60 }
+  # CONFLICT 6: on the Pi 5, GPIO4/5 is UART2 (uart2-pi5) → /dev/ttyAMA2. Verify on the Pi.
+  - { id: level_01,  type: water_level,       zone: 0, host: pi, device: ultrasonic_uart, port: /dev/ttyAMA2, tank_depth_cm: 60, blind_zone_cm: 25, interval_s: 60 }
+  # CONFLICT 3: no pin assigned in any document. GPIO26 proposed.
+  - { id: flow_01,   type: water_flow,        zone: 0, host: pi, device: hall_flow, pin: GPIO26, pulses_per_litre: 450, installed: false }
+  - { id: hopper_01, type: hopper_weight,     zone: 0, host: pi, device: hx711, dt_pin: GPIO6, sck_pin: GPIO13, calibration: scale }
+  # CONFLICT 2: Case B — logic input, software cut-off. Open circuit = LOW water.
+  - { id: float_01,  type: float_switch,      zone: 0, host: pi, device: float, pin: GPIO19, low_when: open }
+
+# ── Actuators ────────────────────────────────────────────────────────────────
+relay_board:
+  active_low: true          # Gate 2 §2
+  inputs: { IN1: GPIO17, IN2: GPIO27, IN3: GPIO22, IN4: GPIO23, IN5: GPIO24, IN6: GPIO25, IN7: GPIO8, IN8: GPIO7 }
+
+actuators:
+  - { id: pump,            name: Pressure washer,      kind: relay, channel: IN1, group: irrigation, water: true, min_on_s: 30, min_off_s: 120, max_run_s: 900, daily_cap_s: 7200 }
+  - { id: valve_fog,       name: Fogging valve,        kind: relay, channel: IN2, group: irrigation, water: true, circuit: fog }
+  - { id: valve_drip,      name: Drip valve,           kind: relay, channel: IN3, group: irrigation, water: true, circuit: drip }
+  - { id: valve_sprinkler, name: Sprinkler valve,      kind: relay, channel: IN4, group: irrigation, water: true, circuit: sprinkler }
+  - { id: servo_main,      name: Main ball valve,      kind: servo, pca9685_channel: 0, group: irrigation, water: true, open_pulse_us: 2000, closed_pulse_us: 1000 }
+  - { id: servo_diverter,  name: Diverter ball valve,  kind: servo, pca9685_channel: 1, group: irrigation, water: true, open_pulse_us: 2000, closed_pulse_us: 1000, manual_only: true }
+  - { id: fan_exhaust,     name: Exhaust fan,          kind: relay, channel: IN7, group: climate, min_on_s: 60, min_off_s: 60, installed: false }
+  # CONFLICT 3: no pin for the lighting SSR in any document. GPIO16 proposed.
+  - { id: lights,          name: Grow lights,          kind: ssr,   pin: GPIO16, group: climate, min_on_s: 300, min_off_s: 300 }
+  - { id: auger,           name: Fertilizer auger,     kind: stepper, step_pin: GPIO21, dir_pin: GPIO20, steps_per_increment: 50, group: fertigation }
+  - { id: fan_enclosure,   name: Enclosure fans,       kind: relay, channel: IN5, also: [IN6], group: enclosure, installed: false }
+
+# Virtual actuator the app can command as one unit: opens the valve for the
+# active stage (or a requested circuit), the main ball valve, then the pump.
+virtual_actuators:
+  - { id: irrigation, name: Irrigation, group: irrigation, water: true, expands_to: [servo_main, "valve_{circuit}", pump] }

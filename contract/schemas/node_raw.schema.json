@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gh1.local/schemas/node_raw.json",
+  "title": "NodeRaw",
+  "description": "Published by a sensing node on gh/{gh}/node/{node_id}/raw every 30 s. Raw values only; the Pi applies calibration and quality flags.",
+  "type": "object",
+  "required": [
+    "node_id",
+    "ts",
+    "readings"
+  ],
+  "properties": {
+    "node_id": {
+      "type": "string"
+    },
+    "ts": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "seq": {
+      "type": "integer"
+    },
+    "readings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "sensor_id",
+          "raw",
+          "ok"
+        ],
+        "properties": {
+          "sensor_id": {
+            "type": "string"
+          },
+          "raw": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

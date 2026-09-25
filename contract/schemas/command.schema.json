@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gh1.local/schemas/command.json",
+  "title": "Command",
+  "description": "POST /actuator/{id}/command body, forwarded to gh/{gh}/actuator/{id}/cmd.",
+  "type": "object",
+  "required": [
+    "cmd_id",
+    "actuator_id",
+    "action",
+    "ts"
+  ],
+  "properties": {
+    "cmd_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actuator_id": {
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "ON",
+        "OFF",
+        "AUTO",
+        "DOSE"
+      ],
+      "description": "AUTO returns the actuator to automatic control. DOSE is for the auger and needs target_g."
+    },
+    "duration_s": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "target_g": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "circuit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "fog",
+        "drip",
+        "sprinkler",
+        null
+      ]
+    },
+    "issued_by": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

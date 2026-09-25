@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gh1.local/schemas/reading.json",
+  "title": "Reading",
+  "description": "Published retained on gh/{gh}/zone/{zone}/sensor/{sensor_id}. A failed read is never published as 0: value is null and quality explains why.",
+  "type": "object",
+  "required": [
+    "sensor_id",
+    "zone_id",
+    "type",
+    "value",
+    "unit",
+    "raw",
+    "quality",
+    "ts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "sensor_id": {
+      "type": "string"
+    },
+    "zone_id": {
+      "type": "integer"
+    },
+    "type": {
+      "type": "string"
+    },
+    "value": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "unit": {
+      "type": "string"
+    },
+    "raw": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "quality": {
+      "enum": [
+        "VALID",
+        "WARMING",
+        "STALE",
+        "INVALID",
+        "UNCALIBRATED"
+      ]
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# greenhouse-net: keeps the Pi reachable whichever network is available.
+#   MAgSO Wi-Fi (greenhouse-magso) > dedicated router (greenhouse-router) > own hotspot (greenhouse-hotspot)
+# Writes the current mode to /run/greenhouse/network_mode; the control service reports it
+# to the app (Settings → Diagnostics) and the kiosk.
+set -uo pipefail
+CONF=/etc/greenhouse/network.conf
+# shellcheck source=/dev/null
+[[ -f $CONF ]] && source "$CONF"
+WAIT_S=${WAIT_S:-90}
+RETRY_S=${RETRY_S:-300}
+STATE_DIR=/run/greenhouse
+mkdir -p "$STATE_DIR"; chmod 755 "$STATE_DIR"
+
+log() { echo "greenhouse-net: $*"; }
+active() { nmcli -t -f NAME connection show --active 2>/dev/null; }
+mode_now() {
+  local a; a=$(active)
+  if grep -qx greenhouse-magso <<<"$a"; then echo magso
+  elif grep -qx greenhouse-router <<<"$a"; then echo router
+  elif grep -qx greenhouse-hotspot <<<"$a"; then echo hotspot
+  elif [[ -n "$(nmcli -t -f TYPE,STATE device 2>/dev/null | grep -E '^ethernet:connected')" ]]; then echo ethernet
+  else echo none; fi
+}
+write_mode() { echo "$1" > "$STATE_DIR/network_mode.tmp" && mv "$STATE_DIR/network_mode.tmp" "$STATE_DIR/network_mode"; }
+known_visible() {
+  local ssids; ssids=$(nmcli -t -f SSID device wifi list --rescan yes 2>/dev/null || true)
+  for p in greenhouse-magso greenhouse-router; do
+    local s; s=$(nmcli -g 802-11-wireless.ssid connection show "$p" 2>/dev/null) || continue
+    [[ -n "$s" ]] && grep -qx "$s" <<<"$ssids" && { echo "$p"; return 0; }
+  done
+  return 1
+}
+
+# Boot: give the known networks time to connect.
+for ((t = 0; t < WAIT_S; t += 5)); do
+  m=$(mode_now); [[ $m == magso || $m == router || $m == ethernet ]] && break
+  sleep 5
+done
+
+last=""
+while true; do
+  m=$(mode_now)
+  if [[ $m == none ]]; then
+    log "no known network — starting hotspot"
+    nmcli connection up greenhouse-hotspot >/dev/null 2>&1 || log "hotspot failed to start"
+    m=$(mode_now)
+  elif [[ $m == hotspot ]]; then
+    if p=$(known_visible); then
+      log "$p is in range — leaving hotspot"
+      nmcli connection down greenhouse-hotspot >/dev/null 2>&1
+      if ! nmcli connection up "$p" >/dev/null 2>&1; then
+        log "could not join $p — back to hotspot"
+        nmcli connection up greenhouse-hotspot >/dev/null 2>&1
+      fi
+      m=$(mode_now)
+    fi
+  fi
+  [[ $m != "$last" ]] && { log "mode: $m"; write_mode "$m"; last=$m; }
+  if [[ $m == hotspot ]]; then sleep "$RETRY_S"; else sleep 30; fi
+done

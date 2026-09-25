@@ -1,0 +1,20 @@
+[Unit]
+Description=Greenhouse control loop (thresholds, interlocks, arbitration, actuators)
+After=greenhouse-sensors.service
+Wants=greenhouse-sensors.service
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=greenhouse
+Group=greenhouse
+SupplementaryGroups=gpio i2c dialout
+EnvironmentFile=/etc/greenhouse/greenhouse.env
+WorkingDirectory=/opt/greenhouse/controller
+ExecStart=/opt/greenhouse/venv/bin/greenhouse control
+Restart=always
+RestartSec=3
+# The loop publishes its status every cycle; systemd restarts it if it dies.
+
+[Install]
+WantedBy=multi-user.target

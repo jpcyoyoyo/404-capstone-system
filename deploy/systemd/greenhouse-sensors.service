@@ -1,0 +1,19 @@
+[Unit]
+Description=Greenhouse sensors (node ingest, local sensors, quality flags)
+After=network-online.target mosquitto.service greenhouse-db.service
+Wants=network-online.target
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=greenhouse
+Group=greenhouse
+SupplementaryGroups=gpio i2c dialout
+EnvironmentFile=/etc/greenhouse/greenhouse.env
+WorkingDirectory=/opt/greenhouse/controller
+ExecStart=/opt/greenhouse/venv/bin/greenhouse sensors
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

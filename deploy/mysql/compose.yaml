@@ -1,0 +1,13 @@
+# MySQL 8 on the Raspberry Pi. Raspberry Pi OS's own "mysql-server" package is
+# MariaDB, so MySQL itself runs from the official arm64 image (decision 1).
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: greenhouse-mysql
+    restart: unless-stopped
+    ports: ["127.0.0.1:3306:3306"]
+    env_file: mysql.env
+    command: ["--innodb-buffer-pool-size=256M", "--character-set-server=utf8mb4", "--default-time-zone=+00:00"]
+    volumes:
+      - /var/lib/greenhouse-mysql:/var/lib/mysql
+      - ./backup:/backup

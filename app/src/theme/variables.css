@@ -1,0 +1,137 @@
+:root {
+  --ion-font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Primary - Greenhouse Green (overridden live by accent picker in App Settings) */
+  --ion-color-primary: #22c55e;
+  --ion-color-primary-rgb: 34, 197, 94;
+  --ion-color-primary-contrast: #000000;
+  --ion-color-primary-contrast-rgb: 0, 0, 0;
+  --ion-color-primary-shade: #1eae53;
+  --ion-color-primary-tint: #38cb6e;
+
+  /* Secondary - Blue */
+  --ion-color-secondary: #3b82f6;
+  --ion-color-secondary-rgb: 59, 130, 246;
+  --ion-color-secondary-contrast: #ffffff;
+  --ion-color-secondary-contrast-rgb: 255, 255, 255;
+  --ion-color-secondary-shade: #3471d8;
+  --ion-color-secondary-tint: #4f8ff7;
+
+  /* Tertiary */
+  --ion-color-tertiary: #6366f1;
+  --ion-color-tertiary-rgb: 99, 102, 241;
+  --ion-color-tertiary-contrast: #ffffff;
+  --ion-color-tertiary-contrast-rgb: 255, 255, 255;
+  --ion-color-tertiary-shade: #5759d4;
+  --ion-color-tertiary-tint: #7375f2;
+
+  /* Success */
+  --ion-color-success: #22c55e;
+  --ion-color-success-rgb: 34, 197, 94;
+  --ion-color-success-contrast: #000000;
+  --ion-color-success-contrast-rgb: 0, 0, 0;
+  --ion-color-success-shade: #1eae53;
+  --ion-color-success-tint: #38cb6e;
+
+  /* Warning - Amber */
+  --ion-color-warning: #f59e0b;
+  --ion-color-warning-rgb: 245, 158, 11;
+  --ion-color-warning-contrast: #000000;
+  --ion-color-warning-contrast-rgb: 0, 0, 0;
+  --ion-color-warning-shade: #d88a0a;
+  --ion-color-warning-tint: #f6a823;
+
+  /* Danger - Red */
+  --ion-color-danger: #ef4444;
+  --ion-color-danger-rgb: 239, 68, 68;
+  --ion-color-danger-contrast: #ffffff;
+  --ion-color-danger-contrast-rgb: 255, 255, 255;
+  --ion-color-danger-shade: #d23c3c;
+  --ion-color-danger-tint: #f15757;
+
+  /* Dark (named Ionic colour, not the page chrome) */
+  --ion-color-dark: #0f172a;
+  --ion-color-dark-rgb: 15, 23, 42;
+  --ion-color-dark-contrast: #ffffff;
+  --ion-color-dark-contrast-rgb: 255, 255, 255;
+  --ion-color-dark-shade: #0d1424;
+  --ion-color-dark-tint: #273242;
+
+  /* Medium */
+  --ion-color-medium: #64748b;
+  --ion-color-medium-rgb: 100, 116, 139;
+  --ion-color-medium-contrast: #ffffff;
+  --ion-color-medium-contrast-rgb: 255, 255, 255;
+  --ion-color-medium-shade: #58657a;
+  --ion-color-medium-tint: #748197;
+
+  /* Light */
+  --ion-color-light: #f1f5f9;
+  --ion-color-light-rgb: 241, 245, 249;
+  --ion-color-light-contrast: #000000;
+  --ion-color-light-contrast-rgb: 0, 0, 0;
+  --ion-color-light-shade: #d4d8dc;
+  --ion-color-light-tint: #f2f5fa;
+
+  /* === Page chrome — LIGHT (default) === */
+  --ion-background-color: #f8fafc;
+  --ion-background-color-rgb: 248, 250, 252;
+  --ion-text-color: #0f172a;
+  --ion-text-color-rgb: 15, 23, 42;
+
+  --ion-card-background: #ffffff;
+  --ion-toolbar-background: #ffffff;
+  --ion-toolbar-color: #0f172a;
+  --ion-tab-bar-background: #ffffff;
+  --ion-tab-bar-border-color: #e2e8f0;
+  --ion-tab-bar-color: #94a3b8;
+  --ion-tab-bar-color-selected: #22c55e;
+  --ion-item-background: #ffffff;
+  --ion-border-color: #e2e8f0;
+  --ion-placeholder-color: #94a3b8;
+
+  /* Custom design tokens — LIGHT (default) */
+  --sg-bg: #f8fafc;
+  --sg-card: #ffffff;
+  --sg-elevated: #f1f5f9;
+  --sg-border: #e2e8f0;
+  --sg-green: #22c55e;
+  --sg-amber: #f59e0b;
+  --sg-red: #ef4444;
+  --sg-blue: #3b82f6;
+  --sg-text: #0f172a;
+  --sg-muted: #64748b;
+  --sg-dim: #94a3b8;
+  --sg-surface: #ffffff;
+
+  /* Appearance knobs — driven live by AppSettingsContext */
+  --sg-font-scale: 1;
+  --sg-card-pad: 12px 14px;
+}
+
+/* === Page chrome — DARK (applied via .ion-palette-dark on <html>) === */
+.ion-palette-dark {
+  --ion-background-color: #0d1b2a;
+  --ion-background-color-rgb: 13, 27, 42;
+  --ion-text-color: #f1f5f9;
+  --ion-text-color-rgb: 241, 245, 249;
+
+  --ion-card-background: #1a2840;
+  --ion-toolbar-background: #0a1520;
+  --ion-toolbar-color: #f1f5f9;
+  --ion-tab-bar-background: #0a1520;
+  --ion-tab-bar-border-color: #2d4a6b;
+  --ion-tab-bar-color: #64748b;
+  --ion-item-background: #1a2840;
+  --ion-border-color: #2d4a6b;
+  --ion-placeholder-color: #64748b;
+
+  --sg-bg: #0d1b2a;
+  --sg-card: #1a2840;
+  --sg-elevated: #1f3050;
+  --sg-border: #2d4a6b;
+  --sg-text: #f1f5f9;
+  --sg-muted: #94a3b8;
+  --sg-dim: #64748b;
+  --sg-surface: #162032;
+}

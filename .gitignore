@@ -1,0 +1,45 @@
+# Dependencies and build output
+node_modules/
+app/dist/
+app/android/
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+coverage/
+
+# Local databases (dev SQLite)
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets and machine-specific settings — never commit these
+.env
+*.env
+!*.env.example
+deploy/mysql/mysql.env
+deploy/mysql/backup/
+deploy/cloud/cloud.env
+firmware/**/config.h
+*.jks
+*.keystore
+keystore.properties
+
+# Arduino / PlatformIO build output
+firmware/**/build/
+.pio/
+
+# Archives made when copying the repo to the Pi
+*.tgz
+*.zip
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
