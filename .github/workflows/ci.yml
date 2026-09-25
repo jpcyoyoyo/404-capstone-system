@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  controller:
+    name: Controller (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: controller
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: controller/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  app:
+    name: App (Ionic React)
+    runs-on: ubuntu-latest
+    env:
+      CYPRESS_INSTALL_BINARY: 0   # end-to-end tests are not run in CI; skip the 500 MB download
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run test.unit
+      - run: npm run build
+
+  contract:
+    name: Contract in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pyyaml
+      - name: Generated TypeScript matches registry.yaml
+        run: |
+          python contract/tools/gen_ts.py
+          git diff --exit-code app/src/contract/registry.generated.ts
