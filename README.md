@@ -85,10 +85,11 @@ GitHub Actions runs all of these on every push and pull request (`.github/workfl
 
 ## Install on the Raspberry Pi
 
-1. Get this repository onto the Pi (Raspberry Pi OS Bookworm 64-bit with desktop):
+1. Get this repository onto the Pi (Raspberry Pi OS 64-bit with desktop, Bookworm or Trixie):
    `git clone <repo-url> ~/404-capstone-system`, then `cd ~/404-capstone-system/app && npm ci && npm run build`.
 2. Replacing the demo on a Pi that already runs it: Component Assembly Procedures Rev. 2, Section P.
-3. `sudo ./deploy/pi-setup.sh` — or `sudo ./deploy/pi-setup.sh --sim` on the bench without sensors.
+3. `sudo bash ./deploy/pi-setup.sh` — or `sudo bash ./deploy/pi-setup.sh --sim` on the bench without sensors
+   (start it through `bash`: files cloned or copied from Windows lose their executable permission).
    It installs Mosquitto, MySQL 8 (Docker), the Python venv, secrets, the database, the first
    administrator, the systemd services and the kiosk autostart.
 4. Networks: edit `/etc/greenhouse/network.conf`, then

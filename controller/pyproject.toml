@@ -27,7 +27,6 @@ pi = [
   "adafruit-blinka>=8",
   "adafruit-circuitpython-ads1x15>=2.2",
   "adafruit-circuitpython-pca9685>=3.4",
-  "hx711-rpi-py>=1.57",
 ]
 dev = ["pytest>=8", "httpx>=0.27", "jsonschema>=4"]
 

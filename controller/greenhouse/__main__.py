@@ -123,7 +123,15 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.cmd == "create-user":
-        pw = args.password or getpass.getpass("Password (min 8 chars): ")
+        pw = args.password
+        while not pw:
+            pw = getpass.getpass("Password (min 8 chars, nothing shows while typing): ")
+            if len(pw) < 8:
+                print(f"  that was {len(pw)} characters; it needs at least 8 — try again")
+                pw = ""
+            elif getpass.getpass("Type it again: ") != pw:
+                print("  the two passwords did not match — try again")
+                pw = ""
         u = create_user(db, args.email, pw, args.name or args.email.split("@")[0], args.role)
         print(f"saved {u.email} ({u.role})")
         return

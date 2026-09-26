@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# One-time setup of the Raspberry Pi 5 controller (Raspberry Pi OS Bookworm, 64-bit, with desktop).
+# One-time setup of the Raspberry Pi 5 controller (Raspberry Pi OS Bookworm or Trixie, 64-bit, with desktop).
 #
 #   1. On a PC: cd app && npm ci && npm run build        (the Pi serves app/dist for the kiosk and browsers)
 #   2. Copy the whole 404-capstone-system folder to the Pi (USB stick or scp)
-#   3. On the Pi:  sudo ./deploy/pi-setup.sh             (add --sim to run with simulated sensors on the bench)
+#   3. On the Pi:  sudo bash ./deploy/pi-setup.sh        (add --sim to run with simulated sensors on the bench)
 #
 # Re-running is safe: secrets and existing data are kept; code, units and configs are refreshed.
 set -euo pipefail
@@ -53,7 +53,7 @@ hostnamectl set-hostname greenhouse   # reachable as greenhouse.local via avahi
 say "Service account and files"
 id greenhouse >/dev/null 2>&1 || useradd --system --home "$DEST" --shell /usr/sbin/nologin greenhouse
 for g in gpio i2c spi dialout; do getent group $g >/dev/null && usermod -aG $g greenhouse; done
-mkdir -p "$DEST" "$ETC"
+mkdir -p "$DEST/app" "$ETC"      # rsync creates only the last directory level
 rsync -a --delete --exclude '__pycache__' --exclude '*.db' "$REPO/controller/" "$DEST/controller/"
 rsync -a --delete "$REPO/contract/" "$DEST/contract/"
 rsync -a --delete "$REPO/app/dist/" "$DEST/app/dist/"
@@ -64,7 +64,11 @@ say "Python environment"
 [[ -d "$DEST/venv" ]] || python3 -m venv "$DEST/venv"
 "$DEST/venv/bin/pip" install --upgrade pip wheel >/dev/null
 if [[ $SIM -eq 1 ]]; then "$DEST/venv/bin/pip" install "$DEST/controller"
-else "$DEST/venv/bin/pip" install "$DEST/controller[pi]"; fi
+else
+  # lgpio (GPIO on the Pi 5) builds from source on newer Python versions and needs these
+  apt-get install -y swig liblgpio-dev || true
+  "$DEST/venv/bin/pip" install "$DEST/controller[pi]"
+fi
 chown -R greenhouse:greenhouse "$DEST"
 
 say "Secrets and settings"
@@ -80,7 +84,7 @@ broker: greenhouse.local:1883 (or the Pi's address on the current network)
 node_a / $NODE_A
 node_b / $NODE_B
 EOF
-  : > /etc/mosquitto/greenhouse.passwd
+  install -m 600 -o mosquitto -g mosquitto /dev/null /etc/mosquitto/greenhouse.passwd
   mosquitto_passwd -b /etc/mosquitto/greenhouse.passwd greenhouse "$MQ_PW"
   mosquitto_passwd -b /etc/mosquitto/greenhouse.passwd app "$APP_PW"
   mosquitto_passwd -b /etc/mosquitto/greenhouse.passwd node_a "$NODE_A"
