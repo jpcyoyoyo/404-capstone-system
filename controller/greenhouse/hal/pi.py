@@ -190,7 +190,9 @@ class PiHal(Hal):
                 ads = ADS.ADS1115(busio.I2C(board.SCL, board.SDA), address=addr)
                 ads.gain = 1   # ±4.096 V
                 self._sensors[dev] = ads
-            pin = getattr(ADS, f"P{int(channel.upper().replace('A', ''))}")
+            # Input number 0-3. Library v2 named these ADS.P0..P3 and v3 ads1x15.Pin.A0..A3;
+            # both are the plain integers 0-3, so pass the number directly.
+            pin = int(channel.upper().replace("A", ""))
             return round(AnalogIn(ads, pin).voltage, 5)
 
     def _ds18b20(self, sd: SensorDef) -> float | None:

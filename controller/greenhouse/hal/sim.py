@@ -92,7 +92,7 @@ class Environment:
             target_c = 420 if self._on("fan_exhaust") else (380 if sun > 5000 else 700)
             self.co2 += (target_c - self.co2) * 0.05 * k + self.rng.gauss(0, 4)
             irrigating = self._on("pump") and any(self._on(v) for v in ("valve_fog", "valve_drip", "valve_sprinkler"))
-            rate = 1.2 if irrigating else -0.03 - sun / 1_000_000
+            rate = 2.0 if irrigating else -0.03 - sun / 1_000_000   # a fill cycle takes ~8 min, well inside the 15-min pump limit
             for sid in self.soil:
                 self.soil[sid] = max(5.0, min(98.0, self.soil[sid] + rate * k + self.rng.gauss(0, 0.05)))
             self.flow_lpm = (6.0 + self.rng.gauss(0, 0.2)) if irrigating else 0.0
