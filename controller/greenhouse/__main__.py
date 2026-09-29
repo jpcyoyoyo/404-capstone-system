@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> None:
         from .hal import make_hal
         from .services.sensors import SensorService
         bus = _bus(settings, "sensors")
-        svc = SensorService(reg, db, bus, make_hal(settings.hal, reg))
+        svc = SensorService(reg, db, bus, make_hal(settings.hal, reg, outputs=False))  # outputs belong to greenhouse-control
         svc.start()
         _wait_forever([svc.stop, bus.stop])
         return

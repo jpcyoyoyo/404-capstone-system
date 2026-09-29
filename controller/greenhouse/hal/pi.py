@@ -45,7 +45,11 @@ def rp1_chip() -> int:
 
 
 class PiHal(Hal):
-    def __init__(self, reg: Registry):
+    """outputs=False is for greenhouse-sensors: on the Pi 5 a GPIO line can be held by only one
+    process, so the relay, SSR and stepper pins are claimed by greenhouse-control alone. If both
+    services claimed them, whichever started second failed with "GPIO busy" and restarted forever."""
+
+    def __init__(self, reg: Registry, outputs: bool = True):
         from gpiozero import Device, OutputDevice
         from gpiozero.pins.lgpio import LGPIOFactory
 
@@ -53,11 +57,13 @@ class PiHal(Hal):
         self.reg = reg
         self._lock = threading.RLock()
         self._outputs: dict[str, list] = {}
+        self._drives_outputs = outputs
+        self._step = self._dir = None
         active_low = bool(reg.relay_board.get("active_low", True))
         inputs = reg.relay_board.get("inputs", {})
         self._pca = None
         for a in reg.physical_actuators:
-            if not a.installed:
+            if not a.installed or not outputs:
                 continue
             if a.kind == "relay":
                 chans = [a.extra["channel"]] + list(a.extra.get("also", []) or [])
@@ -86,6 +92,8 @@ class PiHal(Hal):
         return self._pca
 
     def set_output(self, adef: ActuatorDef, on: bool) -> None:
+        if not self._drives_outputs:
+            raise RuntimeError("this process does not drive outputs (greenhouse-control does)")
         with self._lock:
             if adef.kind in ("relay", "ssr"):
                 for dev in self._outputs.get(adef.id, []):
@@ -102,6 +110,8 @@ class PiHal(Hal):
     # ── dosing (closed loop against the load cell, §4.3) ─────────────────
     def dose(self, target_g: float, tolerance_g: float, max_time_s: float,
              interlocks_clear: Callable[[], bool]) -> DoseResult:
+        if not self._drives_outputs or self._step is None:
+            return DoseResult(0.0, "aborted", "NO_AUGER")
         hopper = next(s for s in self.reg.sensors if s.type == "hopper_weight")
         steps = int(self._auger.extra.get("steps_per_increment", 50))
 
@@ -258,29 +268,44 @@ class PiHal(Hal):
         return None
 
     def _hx711_raw(self, sd: SensorDef, samples: int = 5) -> float | None:
+        """Claims DT/SCK only for the duration of one reading and releases them afterwards, so
+        greenhouse-sensors (hopper display) and greenhouse-control (dosing) can share the load cell.
+        If the other process holds the lines, retry briefly and then report no reading."""
         import lgpio
         dt, sck = _gpio_num(sd.extra["dt_pin"]), _gpio_num(sd.extra["sck_pin"])
         with self._lock:
-            h = self._sensors.get("lgpio")
+            h = None
+            for _ in range(10):
+                try:
+                    h = lgpio.gpiochip_open(rp1_chip())
+                    lgpio.gpio_claim_input(h, dt)
+                    lgpio.gpio_claim_output(h, sck, 0)
+                    break
+                except Exception:
+                    if h is not None:
+                        lgpio.gpiochip_close(h)
+                        h = None
+                    time.sleep(0.2)
             if h is None:
-                h = lgpio.gpiochip_open(rp1_chip())
-                lgpio.gpio_claim_input(h, dt)
-                lgpio.gpio_claim_output(h, sck, 0)
-                self._sensors["lgpio"] = h
-            vals = []
-            for _ in range(samples):
-                t0 = time.monotonic()
-                while lgpio.gpio_read(h, dt) == 1:
-                    if time.monotonic() - t0 > 0.5:
-                        return None
-                    time.sleep(0.001)
-                v = 0
-                for _ in range(24):
-                    lgpio.gpio_write(h, sck, 1); v = (v << 1) | lgpio.gpio_read(h, dt); lgpio.gpio_write(h, sck, 0)
-                lgpio.gpio_write(h, sck, 1); lgpio.gpio_write(h, sck, 0)   # 25th pulse: channel A, gain 128
-                if v & 0x800000:
-                    v -= 1 << 24
-                vals.append(v)
+                return None
+            try:
+                vals = []
+                for i in range(samples):
+                    t0 = time.monotonic()
+                    limit = 1.0 if i == 0 else 0.5   # first conversion after claiming may take ~0.4 s
+                    while lgpio.gpio_read(h, dt) == 1:
+                        if time.monotonic() - t0 > limit:
+                            return None
+                        time.sleep(0.001)
+                    v = 0
+                    for _ in range(24):
+                        lgpio.gpio_write(h, sck, 1); v = (v << 1) | lgpio.gpio_read(h, dt); lgpio.gpio_write(h, sck, 0)
+                    lgpio.gpio_write(h, sck, 1); lgpio.gpio_write(h, sck, 0)   # 25th pulse: channel A, gain 128
+                    if v & 0x800000:
+                        v -= 1 << 24
+                    vals.append(v)
+            finally:
+                lgpio.gpiochip_close(h)   # releases DT and SCK for the other service
         vals.sort()
         trimmed = vals[1:-1] if len(vals) > 3 else vals   # reject outliers
         return float(sum(trimmed) / len(trimmed))

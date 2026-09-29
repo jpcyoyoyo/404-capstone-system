@@ -37,11 +37,12 @@ class Hal:
         pass
 
 
-def make_hal(kind: str, reg: Registry, env=None) -> Hal:
+def make_hal(kind: str, reg: Registry, env=None, outputs: bool = True) -> Hal:
+    """outputs=False: the process only reads sensors (greenhouse-sensors); see PiHal."""
     if kind == "sim":
         from .sim import SimHal, Environment
         return SimHal(reg, env or Environment(reg))
     if kind == "pi":
         from .pi import PiHal
-        return PiHal(reg)
+        return PiHal(reg, outputs=outputs)
     raise ValueError(f"unknown HAL '{kind}' (use sim or pi)")

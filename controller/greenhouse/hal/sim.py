@@ -51,7 +51,7 @@ class Environment:
         soil_ids = [s.id for s in reg.sensors if s.type == "soil_moisture"]
         self.soil = {sid: 64.0 + self.rng.uniform(-3, 3) for sid in soil_ids}
         self.soil_index = {sid: i for i, sid in enumerate(soil_ids)}
-        self.ph, self.ec, self.wtemp = 6.1, 1.4, 26.0
+        self.ph, self.ec, self.wtemp = 6.1, 1.0, 26.0
         self.level_pct, self.hopper_g = 85.0, 900.0
         self.flow_lpm = 0.0
         self.act: dict[str, bool] = {}
@@ -99,7 +99,7 @@ class Environment:
             if irrigating:
                 self.level_pct = max(0.0, self.level_pct - 0.35 * k)
             self.ph += (6.1 - self.ph) * 0.01 * k + self.rng.gauss(0, 0.005)
-            self.ec += (1.3 - self.ec) * 0.002 * k + self.rng.gauss(0, 0.003)
+            self.ec += (1.0 - self.ec) * 0.002 * k + self.rng.gauss(0, 0.003)
             self.wtemp += (25.5 + sun / 20000 - self.wtemp) * 0.02 * k
             self.hum = max(20.0, min(99.0, self.hum))
 

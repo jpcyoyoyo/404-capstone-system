@@ -267,7 +267,7 @@ export const REGISTRY_META: GreenhouseMeta = {
       "zone": 0,
       "host": "pi",
       "unit": "mS/cm",
-      "installed": false,
+      "installed": true,
       "calibration": "two_point"
     },
     {
