@@ -44,6 +44,18 @@ def rp1_chip() -> int:
     return 0
 
 
+def _ds18b20_temp(lines: list[str]) -> float | None:
+    """Temperature from the two w1_slave lines, or None if the scratchpad is not a real reading.
+
+    With the data line disconnected the bus reads as all zeros (or all ones). An all-zero
+    scratchpad has a valid CRC (0x00), so the kernel reports "YES" and t=0 — a plausible
+    0 °C that must not be stored. A real reading always has non-zero configuration bytes."""
+    data = lines[0].split(":")[0].split()[:9]
+    if not data or all(b == "00" for b in data) or all(b.lower() == "ff" for b in data):
+        return None
+    return int(lines[1].split("t=")[1]) / 1000.0
+
+
 class PiHal(Hal):
     """outputs=False is for greenhouse-sensors: on the Pi 5 a GPIO line can be held by only one
     process, so the relay, SSR and stepper pins are claimed by greenhouse-control alone. If both
@@ -216,7 +228,7 @@ class PiHal(Hal):
         lines = open(paths[0]).read().splitlines()
         if len(lines) < 2 or not lines[0].strip().endswith("YES"):
             return None
-        return int(lines[1].split("t=")[1]) / 1000.0
+        return _ds18b20_temp(lines)
 
     def ultrasonic_distance_cm(self, sd: SensorDef) -> float | None:
         """Raw distance from the transducer, for finding the blind zone and the tank depth."""
