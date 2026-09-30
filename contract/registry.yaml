@@ -100,7 +100,7 @@ sensor_defaults:
     light:             [0, 100000]
     co2:               [300, 5000]
     ph:                [0, 14]
-    ec:                [0, 10]
+    ec:                [0.02, 10]   # below 0.02 mS/cm = probe dry or unplugged (A6 T5); tap water is ~0.1+
     water_temperature: [-5, 60]
     water_level:       [0, 100]
     water_flow:        [0, 60]
