@@ -19,7 +19,7 @@ class RawSample:
 class DoseResult:
     delivered_g: float
     status: str      # complete | aborted
-    reason: str      # "" | AUGER_JAM | INTERLOCK | ...
+    reason: str      # "" | NO_FLOW | INTERLOCK | LOAD_CELL_FAULT | NO_DOSER | ...
 
 
 class Hal:
@@ -31,6 +31,12 @@ class Hal:
 
     def dose(self, target_g: float, tolerance_g: float, max_time_s: float,
              interlocks_clear: Callable[[], bool]) -> DoseResult:
+        """Pump stock solution until the bottle on the load cell has lost target_g (grams of
+        SOLUTION; the caller converts from grams of fertilizer, see greenhouse.fertigation)."""
+        raise NotImplementedError
+
+    def prime(self, seconds: float) -> None:
+        """Run the dosing pump for a fixed time with no weighing (bench test, filling the tube)."""
         raise NotImplementedError
 
     def close(self) -> None:

@@ -85,7 +85,7 @@ const Controls: React.FC = () => {
               : manual && st?.manual_until ? `Manual · ${untilText(st.manual_until)}`
               : st?.reason ? `${st.reason}${st.since ? ` · ${fmtTime(st.since)}` : ''}` : 'Automatic'}
           </div>
-          {def.installed && !def.manual_only && def.kind !== 'stepper' && (
+          {def.installed && !def.manual_only && def.kind !== 'dosing_pump' && (
             <div className="sg-row sg-gap-8" style={{ marginTop: 8 }}>
               {busy === def.id ? <IonSpinner name="dots" /> : <>
                 <IonButton size="small" fill={st?.on && manual ? 'solid' : 'outline'} disabled={disabled}

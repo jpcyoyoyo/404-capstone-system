@@ -13,6 +13,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 data = yaml.safe_load((ROOT / "contract" / "registry.yaml").read_text(encoding="utf-8"))
 units = data.get("sensor_defaults", {}).get("units", {})
+fert = data["control"].get("fertigation", {})
 
 meta = {
     "id": data["greenhouse"]["id"],
@@ -35,7 +36,11 @@ meta = {
     "control": {"cycle_s": data["control"].get("cycle_s", 30),
                 "command_expiry_s": data["control"].get("command_expiry_s", 60),
                 "manual_override_max_s": data["control"].get("manual_override_max_s", 1800),
-                "photoperiod": data["control"].get("photoperiod")},
+                "photoperiod": data["control"].get("photoperiod"),
+                "fertigation": {"stock_g_per_kg": float(fert.get("stock_g_per_kg", 100)),
+                                "stock_reserve_g": float(fert.get("stock_reserve_g", 100)),
+                                "dose_g": float(fert.get("dose_g", 20)),
+                                "tolerance_g": float(fert.get("tolerance_g", 0.5))}},
 }
 thresholds = {}
 for st in data["growth_stages"]:

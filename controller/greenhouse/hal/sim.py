@@ -3,7 +3,7 @@
 Used by `greenhouse dev`, by `greenhouse sim-nodes` (fake Node A/B), and in tests.
 Supports fault injection so the Gate 2 fault list and the Level 3 test cases can be
 demonstrated live: force a sensor value, make it fail, make it go silent, take a node
-offline, drain the reservoir, jam the auger.
+offline, drain the reservoir, block the dosing pump.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ SOIL_DRY = [26100, 25800, 26400, 25900, 26250, 25700]
 SOIL_WET = [12100, 12500, 11900, 12300, 12050, 12400]
 PH_SLOPE, PH_INTERCEPT = -5.70, 21.25          # module volts → pH (7.0 at 2.5 V)
 HX_OFFSET, HX_SCALE = 8000.0, 420.0            # HX711 counts → grams
+DOSER_G_PER_S = 1.2                            # ~70 mL/min, a typical 12 V peristaltic pump
 
 
 def sim_calibrations(reg: Registry) -> dict[str, dict]:
@@ -36,7 +37,7 @@ def sim_calibrations(reg: Registry) -> dict[str, dict]:
             out[s.id] = {"slope": PH_SLOPE, "intercept": PH_INTERCEPT, "kind": "ph"}
         elif s.type == "ec":
             out[s.id] = {"slope": 1.0, "intercept": 0.0, "kind": "ec"}
-        elif s.type == "hopper_weight":
+        elif s.type == "stock_weight":
             out[s.id] = {"offset": HX_OFFSET, "scale": HX_SCALE}
     return out
 
@@ -52,14 +53,14 @@ class Environment:
         self.soil = {sid: 64.0 + self.rng.uniform(-3, 3) for sid in soil_ids}
         self.soil_index = {sid: i for i, sid in enumerate(soil_ids)}
         self.ph, self.ec, self.wtemp = 6.1, 1.0, 26.0
-        self.level_pct, self.hopper_g = 85.0, 900.0
+        self.level_pct, self.stock_g = 85.0, 1500.0   # grams of stock solution in the bottle
         self.flow_lpm = 0.0
         self.act: dict[str, bool] = {}
         # faults
         self.forced: dict[str, float | None] = {}   # sensor_id → forced ENGINEERING value (None = failed read)
         self.silent: set[str] = set()                # sensors that stop reporting
         self.offline_nodes: set[str] = set()
-        self.auger_jammed = False
+        self.doser_blocked = False
 
     # ── actuators ────────────────────────────────────────────────────────
     def set_actuator(self, aid: str, on: bool) -> None:
@@ -129,8 +130,8 @@ class Environment:
             return self.level_pct
         if t == "water_flow":
             return self.flow_lpm
-        if t == "hopper_weight":
-            return self.hopper_g
+        if t == "stock_weight":
+            return self.stock_g
         if t == "float_switch":
             return 1.0 if self.level_pct > 12 else 0.0
         return 0.0
@@ -142,7 +143,7 @@ class Environment:
         if sd.type == "ph":
             module_v = (value - PH_INTERCEPT) / PH_SLOPE
             return round(module_v / float(sd.extra.get("divider", 1.0)), 4)
-        if sd.type == "hopper_weight":
+        if sd.type == "stock_weight":
             return round(value * HX_SCALE + HX_OFFSET + self.rng.gauss(0, 60))
         return round(value, 2)
 
@@ -180,8 +181,10 @@ class Environment:
                 self.level_pct = float(fault.get("value", 5))
             elif kind == "fill":
                 self.level_pct = float(fault.get("value", 90))
-            elif kind == "jam_auger":
-                self.auger_jammed = bool(fault.get("value", True))
+            elif kind == "block_doser":
+                self.doser_blocked = bool(fault.get("value", True))
+            elif kind == "refill_stock":
+                self.stock_g = float(fault.get("value", 1500))
             elif kind == "set":
                 attr = fault.get("attr")
                 if attr in ("temp", "hum", "co2", "ph", "ec"):
@@ -199,7 +202,7 @@ class Environment:
                     self.forced.clear()
                     self.silent.clear()
                     self.offline_nodes.clear()
-                    self.auger_jammed = False
+                    self.doser_blocked = False
             else:
                 return f"unknown fault kind {kind}"
         return "ok"
@@ -217,10 +220,10 @@ class SimHal(Hal):
     def servo_pulse(self, channel: int, pulse_us: float) -> None:
         self.outputs[f"pca9685:{channel}"] = pulse_us > 0
 
-    def jog(self, steps: int, reverse: bool = False, step_delay_s: float = 0.001) -> None:
+    def prime(self, seconds: float) -> None:
         with self.env.lock:
-            if not reverse:
-                self.env.hopper_g = max(0.0, self.env.hopper_g - steps / 200 * 5.0)   # ~5 g per revolution
+            if not self.env.doser_blocked:
+                self.env.stock_g = max(0.0, self.env.stock_g - seconds * DOSER_G_PER_S)
 
     def ultrasonic_distance_cm(self, sd: SensorDef) -> float | None:
         depth, blind = float(sd.extra.get("tank_depth_cm", 60)), float(sd.extra.get("blind_zone_cm", 25))
@@ -238,20 +241,27 @@ class SimHal(Hal):
 
     def dose(self, target_g: float, tolerance_g: float, max_time_s: float,
              interlocks_clear: Callable[[], bool]) -> DoseResult:
-        """Same closed loop as the real auger (Integration Plan §4.3), against the simulated load cell."""
-        start_mass = self.env.hopper_g
+        """Same pulse-and-weigh loop as PiHal.dose, against the simulated bottle (time compressed:
+        each pulse moves ~2 s of flow but takes 50 ms)."""
+        start_mass = self.env.stock_g
         t0 = time.monotonic()
-        delivered = 0.0
+        delivered, dry = 0.0, 0
         while delivered < target_g - tolerance_g:
             if not interlocks_clear():
-                return DoseResult(delivered, "aborted", "INTERLOCK")
+                return DoseResult(round(delivered, 1), "aborted", "INTERLOCK")
             if time.monotonic() - t0 > max_time_s:
-                return DoseResult(delivered, "aborted", "AUGER_JAM")
-            if not self.env.auger_jammed:
-                with self.env.lock:
-                    step = min(self.env.hopper_g, self.env.rng.uniform(1.5, 3.0))
-                    self.env.hopper_g -= step
-                    self.env.ec += step * 0.002
+                return DoseResult(round(delivered, 1), "aborted", "TIMEOUT")
+            remaining = target_g - delivered
+            with self.env.lock:
+                flow = 0.0 if self.env.doser_blocked else min(self.env.stock_g, DOSER_G_PER_S * min(2.0, max(0.2, 0.8 * remaining / DOSER_G_PER_S)))
+                flow *= self.env.rng.uniform(0.9, 1.1)
+                flow = min(flow, self.env.stock_g)
+                self.env.stock_g -= flow
+                # 1 g of solution at 100 g/kg carries 0.1 g of fertilizer; ~0.002 mS/cm per g in 200 L
+                self.env.ec += flow * 0.1 * 0.002
             time.sleep(0.05)
-            delivered = start_mass - self.env.hopper_g
+            delivered = start_mass - self.env.stock_g
+            dry = dry + 1 if flow < 0.5 else 0
+            if dry >= 8:   # ~15 s of pump time with no weight loss
+                return DoseResult(round(delivered, 1), "aborted", "NO_FLOW")
         return DoseResult(round(delivered, 1), "complete", "")

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { IonPage, IonContent, IonSegment, IonSegmentButton, IonLabel, IonButton, IonSpinner, useIonAlert, useIonToast } from '@ionic/react';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
+import PresetCard from '../components/PresetCard';
+import { SHOWN_ACTIONS, describeChange } from '../providers/presets';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { METRIC_INFO } from '../providers/metrics';
@@ -44,7 +46,7 @@ const Schedules: React.FC = () => {
       setList(l); setDraft(toDraft(l));
     } catch (e) { setErr(e instanceof Error ? e.message : 'Could not load thresholds.'); }
     finally { setLoading(false); }
-    gh.data.audit(300).then(a => setChanges(a.filter(x => x.action === 'threshold_updated' || x.action === 'stage_changed').slice(0, 10))).catch(() => setChanges([]));
+    gh.data.audit(300).then(a => setChanges(a.filter(x => SHOWN_ACTIONS.has(x.action)).slice(0, 10))).catch(() => setChanges([]));
   }, [gh.data, view]);
 
   useEffect(() => { load(); }, [load]);
@@ -104,6 +106,8 @@ const Schedules: React.FC = () => {
       <IonContent className="ion-padding">
         <StatusBanner />
         <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--sg-text)', marginBottom: 10 }}>Thresholds</div>
+
+        <PresetCard canEdit={canEdit} hasUnsaved={edited.length > 0} onChanged={load} />
 
         <IonSegment value={view} onIonChange={e => setView(String(e.detail.value))} style={{ marginBottom: 10 }}>
           {gh.meta.stages.map(s => (
@@ -188,9 +192,7 @@ const Schedules: React.FC = () => {
             {changes.map(a => (
               <div key={a.id} className="sg-timeline-entry">
                 <div style={{ fontSize: 12, color: 'var(--sg-text)' }}>
-                  {a.action === 'stage_changed'
-                    ? `Stage ${String((a.detail as Record<string, unknown>)?.old ?? '?')} → ${String((a.detail as Record<string, unknown>)?.new ?? '?')}`
-                    : `${a.target.split(':').slice(1).join(' · ')} → ${String((a.detail as Record<string, unknown>)?.min ?? '')}–${String((a.detail as Record<string, unknown>)?.max ?? '')}`}
+                  {describeChange(a)}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--sg-dim)' }}>{a.actor} · {fmtDateTime(a.occurred_at)}</div>
               </div>

@@ -128,6 +128,21 @@ class Threshold(Base):
     __table_args__ = (UniqueConstraint("stage_id", "parameter", name="uq_threshold_stage_param"),)
 
 
+class ThresholdPreset(Base):
+    """A named set of bands for all three stages (one plant). See presets.py."""
+    __tablename__ = "threshold_presets"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(60))
+    note: Mapped[str] = mapped_column(String(255), default="")
+    bands: Mapped[dict] = mapped_column(JSON)
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[str] = mapped_column(String(120), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(120), default="system")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Command(Base):
     __tablename__ = "commands"
     cmd_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -207,4 +222,4 @@ class KeyValue(Base):
 SYNCED_APPEND_TABLES = [SensorReading, ActuatorEvent, AuditLog, FertigationDose, Calibration]
 # Small tables replicated whole on every sync pass. Users travel too (password hashes only) so the
 # same accounts work on the remote path; the cloud must use the same GH_JWT_SECRET as the Pi.
-SYNCED_SNAPSHOT_TABLES = [Zone, Sensor, Actuator, GrowthStage, Threshold, Alert, KeyValue, User]
+SYNCED_SNAPSHOT_TABLES = [Zone, Sensor, Actuator, GrowthStage, Threshold, ThresholdPreset, Alert, KeyValue, User]

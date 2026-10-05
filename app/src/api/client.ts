@@ -1,7 +1,8 @@
 // Thin REST client for the controller API (controller/greenhouse/services/api.py).
 import type {
   Ack, AlertItem, AuditEntry, CalibrationBody, CalibrationEntry, CommandRequest, EventEntry, FertilizerReport,
-  GreenhouseMeta, HistoryResult, LiveSnapshot, Threshold, TokenResponse, UserItem, WaterDay,
+  ActivePreset, GreenhouseMeta, HistoryResult, LiveSnapshot, PresetBands, PresetList, Threshold, ThresholdPreset, TokenResponse,
+  UserItem, WaterDay,
 } from '../contract/types';
 
 export class ApiError extends Error {
@@ -109,6 +110,15 @@ export class ApiClient {
   thresholds(stage: string) { return this.request<Threshold[]>('GET', `/thresholds/${stage}`); }
   putThresholds(stage: string, list: { parameter: string; min: number; max: number; deadband?: number }[]) {
     return this.request<Threshold[]>('PUT', `/thresholds/${stage}`, list);
+  }
+  presets() { return this.request<PresetList>('GET', '/threshold-presets'); }
+  createPreset(p: { name: string; note?: string; bands?: PresetBands }) { return this.request<ThresholdPreset>('POST', '/threshold-presets', p); }
+  editPreset(id: string, patch: { name?: string; note?: string; bands?: PresetBands }) {
+    return this.request<ThresholdPreset>('PUT', `/threshold-presets/${encodeURIComponent(id)}`, patch);
+  }
+  async deletePreset(id: string) { await this.request<{ ok: boolean }>('DELETE', `/threshold-presets/${encodeURIComponent(id)}`); }
+  applyPreset(id: string) {
+    return this.request<{ active: ActivePreset | null; changed: number }>('POST', `/threshold-presets/${encodeURIComponent(id)}/apply`);
   }
 
   // alerts & logs

@@ -14,7 +14,7 @@ import { METRIC_ICON, statusColor } from '../components/display';
 import { timeAgo } from '../components/format';
 
 const AIR: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light'];
-const RESERVOIR: MetricKey[] = ['co2', 'ph', 'ec', 'water_level', 'water_temperature', 'hopper_weight', 'water_flow'];
+const RESERVOIR: MetricKey[] = ['co2', 'ph', 'ec', 'water_level', 'water_temperature', 'stock_weight', 'water_flow'];
 
 const Q_PILL: Record<Quality, string> = {
   VALID: 'sg-pill-ok', WARMING: 'sg-pill-info', STALE: 'sg-pill-warn', INVALID: 'sg-pill-crit', UNCALIBRATED: 'sg-pill-warn',

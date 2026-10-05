@@ -25,7 +25,7 @@
         "AUTO",
         "DOSE"
       ],
-      "description": "AUTO returns the actuator to automatic control. DOSE is for the auger and needs target_g."
+      "description": "AUTO returns the actuator to automatic control. DOSE is for the dosing pump (doser) and needs target_g."
     },
     "duration_s": {
       "type": [
@@ -39,7 +39,9 @@
         "number",
         "null"
       ],
-      "minimum": 0
+      "minimum": 0,
+      "maximum": 200,
+      "description": "Grams of fertilizer for DOSE. The controller pumps the matching weight of stock solution (control.fertigation.stock_g_per_kg)."
     },
     "circuit": {
       "type": [

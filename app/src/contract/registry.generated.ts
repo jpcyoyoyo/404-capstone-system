@@ -298,8 +298,8 @@ export const REGISTRY_META: GreenhouseMeta = {
       "calibration": "none"
     },
     {
-      "id": "hopper_01",
-      "type": "hopper_weight",
+      "id": "stock_01",
+      "type": "stock_weight",
       "zone": 0,
       "host": "pi",
       "unit": "g",
@@ -406,10 +406,10 @@ export const REGISTRY_META: GreenhouseMeta = {
       "circuit": null
     },
     {
-      "id": "auger",
-      "name": "Fertilizer auger",
+      "id": "doser",
+      "name": "Dosing pump",
       "group": "fertigation",
-      "kind": "stepper",
+      "kind": "dosing_pump",
       "installed": true,
       "water": false,
       "manual_only": false,
@@ -446,6 +446,12 @@ export const REGISTRY_META: GreenhouseMeta = {
     "photoperiod": {
       "start": "06:00",
       "end": "18:00"
+    },
+    "fertigation": {
+      "stock_g_per_kg": 100.0,
+      "stock_reserve_g": 100.0,
+      "dose_g": 20.0,
+      "tolerance_g": 0.5
     }
   }
 } as GreenhouseMeta;

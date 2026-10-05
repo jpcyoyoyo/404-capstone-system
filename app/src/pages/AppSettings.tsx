@@ -196,7 +196,7 @@ const AppSettings: React.FC = () => {
             { label: 'Show KPI Row',              sub: 'Water, fertilizer, solar today', val: showKpi,       set: setShowKpi       },
             { label: 'Show Recent Actions',       sub: 'Last automated events list',     val: showActions,    set: setShowActions    },
             { label: 'Show Energy Mini-Status',   sub: 'Solar/battery in header',        val: showEnergy,     set: setShowEnergy     },
-            { label: 'Show Fertilizer Card',      sub: 'Hopper weight widget',           val: showFertilizer, set: setShowFertilizer },
+            { label: 'Show Fertilizer Card',      sub: 'Stock solution widget',           val: showFertilizer, set: setShowFertilizer },
           ].map(r => (
             <SettingRow key={r.label} label={r.label} sub={r.sub}>
               <IonToggle checked={r.val} onIonChange={e => r.set(e.detail.checked)}

@@ -46,16 +46,18 @@ describe('demo controller', () => {
   test('a dose runs to the target and is recorded; stopping aborts it', () => {
     const d = new DemoController('growth');
     const before = d.doses.length;
-    expect(d.command(cmd('auger', 'DOSE', { target_g: 12 })).status).toBe('SIMULATED');
-    expect(d.command(cmd('auger', 'DOSE', { target_g: 5 })).reason).toBe('DOSING');
+    expect(d.command(cmd('doser', 'DOSE', { target_g: 12 })).status).toBe('SIMULATED');
+    expect(d.command(cmd('doser', 'DOSE', { target_g: 5 })).reason).toBe('DOSING');
     for (let i = 0; i < 10; i++) d.tick(2);
     expect(d.doses.length).toBe(before + 1);
     expect(d.doses[0].status).toBe('complete');
     expect(Math.abs(d.doses[0].error_g ?? 99)).toBeLessThan(1);
-    d.command(cmd('auger', 'DOSE', { target_g: 40 }));
+    d.command(cmd('doser', 'DOSE', { target_g: 40 }));
     d.tick(2);
-    d.command(cmd('auger', 'OFF'));
+    d.command(cmd('doser', 'OFF'));
     expect(d.doses[0].reason).toBe('STOPPED');
+    expect(d.command(cmd('doser', 'ON')).reason).toBe('BAD_ACTION');
+    expect(d.command(cmd('doser', 'DOSE', { target_g: 190 })).reason).toBe('STOCK_LOW');
   });
 
   test('emergency stop turns everything off and holds it manual', () => {
@@ -93,7 +95,7 @@ describe('metrics', () => {
     expect(z.value).toBe(27.5);
     const m = buildMetrics(d.meta, r, { soil_moisture: z }, thresholdMap(d.thresholds.growth), {});
     expect(m.soil_moisture.status).toBe('crit');
-    expect(m.ec.installed).toBe(false);
+    expect(m.water_flow.installed).toBe(false);   // flow_01 is installed: false in the registry (EC is now fitted, A6)
   });
 
   test('status bands', () => {

@@ -193,7 +193,7 @@ def test_estop(rig):
 def test_fertigation_dose(rig):
     import time
     h = rig.login()
-    r = rig.client.post("/actuator/auger/command", json={"action": "DOSE", "target_g": 20}, headers=h).json()
+    r = rig.client.post("/actuator/doser/command", json={"action": "DOSE", "target_g": 20}, headers=h).json()
     assert r["status"] == "ACCEPTED", r
     for _ in range(100):
         rep = rig.client.get("/reports/fertilizer", headers=h).json()
@@ -201,7 +201,7 @@ def test_fertigation_dose(rig):
             break
         time.sleep(0.05)
     d = rep["doses"][0]
-    assert d["status"] == "complete" and abs(d["delivered_g"] - 20) <= 3
+    assert d["status"] == "complete" and abs(d["delivered_g"] - 20) <= 1   # grams of fertilizer (200 g of solution)
 
 
 def test_users_admin(rig):
@@ -255,9 +255,9 @@ def test_sync_to_cloud(tmp_path, rig):
 def test_stop_a_running_dose(rig):
     import time
     h = rig.login()
-    assert rig.client.post("/actuator/auger/command", json={"action": "DOSE", "target_g": 400}, headers=h).json()["status"] == "ACCEPTED"
+    assert rig.client.post("/actuator/doser/command", json={"action": "DOSE", "target_g": 120}, headers=h).json()["status"] == "ACCEPTED"
     time.sleep(0.3)
-    r = rig.client.post("/actuator/auger/command", json={"action": "OFF"}, headers=h).json()
+    r = rig.client.post("/actuator/doser/command", json={"action": "OFF"}, headers=h).json()
     assert r["status"] == "ACCEPTED", r
     for _ in range(100):
         rep = rig.client.get("/reports/fertilizer", headers=h).json()
@@ -265,7 +265,7 @@ def test_stop_a_running_dose(rig):
             break
         time.sleep(0.05)
     d = rep["doses"][0]
-    assert d["status"] == "aborted" and d["reason"] == "STOPPED" and d["delivered_g"] < 400
+    assert d["status"] == "aborted" and d["reason"] == "STOPPED" and d["delivered_g"] < 120
 
 
 def test_change_own_password(rig):

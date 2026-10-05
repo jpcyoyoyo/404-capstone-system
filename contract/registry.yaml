@@ -79,11 +79,17 @@ control:
   stale_after_cycles: 3
   co2_warmup_s: 180
   fertigation:
+    # Liquid fertigation (decided 4 Oct 2026): a stock solution in a bottle on the load cell,
+    # pumped into the reservoir by a 12 V peristaltic pump. Doses are set in grams of FERTILIZER;
+    # the controller converts them to grams of stock solution with stock_g_per_kg and pumps until
+    # the bottle has lost that weight.
     auto_enabled: false        # needs the EC sensor; manual dispense works regardless
-    dose_g: 20
+    dose_g: 20                 # grams of fertilizer per automatic dose
+    stock_g_per_kg: 100        # fertilizer per kg of FINISHED stock (100 g + 900 g water = 100 g/kg)
+    stock_reserve_g: 100       # solution left in the bottle that the pump must not try to use
     min_interval_h: 6
-    max_dose_time_s: 120
-    tolerance_g: 2
+    max_dose_time_s: 600
+    tolerance_g: 0.5           # grams of fertilizer (= 5 g of solution at 100 g/kg)
   reservoir_min_level_pct: 15
   manual_override_max_s: 1800  # water-moving manual commands expire after 30 min (§9.8)
   command_expiry_s: 60
@@ -104,7 +110,7 @@ sensor_defaults:
     water_temperature: [-5, 60]
     water_level:       [0, 100]
     water_flow:        [0, 60]
-    hopper_weight:     [-50, 10000]
+    stock_weight:      [-50, 10000]
   units:
     temperature: "°C"
     humidity: "%"
@@ -116,7 +122,7 @@ sensor_defaults:
     water_temperature: "°C"
     water_level: "%"
     water_flow: L/min
-    hopper_weight: g
+    stock_weight: g
     float_switch: state
 
 sensors:
@@ -152,7 +158,8 @@ sensors:
   - { id: level_01,  type: water_level,       zone: 0, host: pi, device: ultrasonic_uart, port: /dev/ttyAMA2, tank_depth_cm: 60, blind_zone_cm: 25, interval_s: 60 }
   # CONFLICT 3: no pin assigned in any document. GPIO26 proposed.
   - { id: flow_01,   type: water_flow,        zone: 0, host: pi, device: hall_flow, pin: GPIO26, pulses_per_litre: 450, installed: false }
-  - { id: hopper_01, type: hopper_weight,     zone: 0, host: pi, device: hx711, dt_pin: GPIO6, sck_pin: GPIO13, calibration: scale }
+  # Stock-solution bottle on the load cell (tare = empty bottle). Replaces the fertilizer hopper.
+  - { id: stock_01,  type: stock_weight,      zone: 0, host: pi, device: hx711, dt_pin: GPIO6, sck_pin: GPIO13, calibration: scale }
   # CONFLICT 2: Case B — logic input, software cut-off. Open circuit = LOW water.
   - { id: float_01,  type: float_switch,      zone: 0, host: pi, device: float, pin: GPIO19, low_when: open }
 
@@ -171,8 +178,12 @@ actuators:
   - { id: fan_exhaust,     name: Exhaust fan,          kind: relay, channel: IN7, group: climate, min_on_s: 60, min_off_s: 60, installed: false }
   # CONFLICT 3: no pin for the lighting SSR in any document. GPIO16 proposed.
   - { id: lights,          name: Grow lights,          kind: ssr,   pin: GPIO16, group: climate, min_on_s: 300, min_off_s: 300 }
-  - { id: auger,           name: Fertilizer auger,     kind: stepper, step_pin: GPIO21, dir_pin: GPIO20, steps_per_increment: 50, group: fertigation }
-  - { id: fan_enclosure,   name: Enclosure fans,       kind: relay, channel: IN5, also: [IN6], group: enclosure, installed: false }
+  # 12 V peristaltic pump on relay IN8. It only ever runs inside a weighed dose (pulse, settle,
+  # weigh); ON/OFF commands cannot start it. no_flow_s: pump run time with no weight loss before
+  # the dose is aborted as NO_FLOW (empty bottle, kinked or air-locked tube).
+  - { id: doser,           name: Dosing pump,          kind: dosing_pump, channel: IN8, pulse_s: 2.0, settle_s: 1.0, no_flow_s: 15, group: fertigation }
+  # Both enclosure fans in parallel on IN5. IN6 is spare: the fallback for the lights SSR (B5).
+  - { id: fan_enclosure,   name: Enclosure fans,       kind: relay, channel: IN5, group: enclosure, installed: false }
 
 # Virtual actuator the app can command as one unit: opens the valve for the
 # active stage (or a requested circuit), the main ball valve, then the pump.

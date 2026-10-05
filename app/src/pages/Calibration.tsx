@@ -9,11 +9,11 @@ import { METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
 import { fmtDateTime } from '../components/format';
 
-const DUE_DAYS: Record<string, number> = { ph: 14, ec: 14, soil_moisture: 90, hopper_weight: 90 };
+const DUE_DAYS: Record<string, number> = { ph: 14, ec: 14, soil_moisture: 90, stock_weight: 90 };
 const KIND_TEXT: Record<string, string> = {
   dry_wet: 'Two readings: probe in dry air, then in water.',
   two_point: 'Two buffer solutions (pH 4.01 and 6.86), optional 9.18 to verify.',
-  scale: 'Empty hopper, then a known weight.',
+  scale: 'Empty stock bottle on the platform, then a known weight.',
 };
 
 const input: React.CSSProperties = {
@@ -84,7 +84,7 @@ const Wizard: React.FC<{ entry: CalibrationEntry; onDone: () => void }> = ({ ent
         </div>
       ))}
       {entry.kind === 'scale' && <>
-        <Capture label="1 · Empty hopper (raw counts)" value={f.offset ?? ''} live={live} onChange={set('offset')} />
+        <Capture label="1 · Empty bottle (raw counts)" value={f.offset ?? ''} live={live} onChange={set('offset')} />
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginBottom: 3 }}>2 · Known weight placed (g)</div>
           <input style={input} type="number" step="any" value={f.known ?? ''} onChange={e => set('known')(e.target.value)} />

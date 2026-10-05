@@ -286,41 +286,50 @@ class ControlService:
 
     # ── fertigation ──────────────────────────────────────────────────────
     def _start_dose(self, grams: float, by: str, cmd_id: str | None, source: str) -> None:
+        """grams is grams of FERTILIZER. The HAL pumps the matching weight of stock solution
+        (greenhouse.fertigation) and reports the solution actually delivered."""
+        from .. import fertigation as F
         with self.lock:
             self.engine.dosing = True
         fert = self.reg.control.get("fertigation", {})
+        conc = F.stock_g_per_kg(fert)
+        target_sol = F.to_solution(grams, conc)
+        tol_sol = F.to_solution(float(fert.get("tolerance_g", 0.5)), conc)
 
         def clear() -> bool:
             with self.lock:
                 res = self._last_result
                 stop = self.engine.dose_stop_requested
-            return not stop and not (res and res.lockouts.get("auger") not in (None, "DOSING"))
+            return not stop and not (res and res.lockouts.get("doser") not in (None, "DOSING"))
 
         def run() -> None:
+            from ..hal import DoseResult
             started = utcnow()
             try:
-                r = self.hal.dose(grams, float(fert.get("tolerance_g", 2)), float(fert.get("max_dose_time_s", 120)), clear)
+                r = self.hal.dose(target_sol, tol_sol, float(fert.get("max_dose_time_s", 600)), clear)
             except Exception as e:
                 log.exception("dose failed")
-                from ..hal import DoseResult
                 r = DoseResult(0.0, "aborted", f"ERROR: {e}"[:60])
             finished = utcnow()
             with self.lock:
                 stopped = self.engine.dose_stop_requested
             if stopped and r.status != "complete":
-                from ..hal import DoseResult
                 r = DoseResult(r.delivered_g, "aborted", "STOPPED")
+            sol = r.delivered_g
+            delivered = round(F.to_fertilizer(sol, conc), 2)
             with self.db.session() as s:
-                s.add(FertigationDose(target_g=grams, delivered_g=r.delivered_g, status=r.status, reason=r.reason,
+                s.add(FertigationDose(target_g=grams, delivered_g=delivered, status=r.status, reason=r.reason,
                                       source=source, issued_by=by, cmd_id=cmd_id, started_at=started, finished_at=finished))
-                s.add(ActuatorEvent(actuator_id="auger", action="DOSE", source=source, issued_by=by, cmd_id=cmd_id,
-                                    reason=f"target {grams:g} g, delivered {r.delivered_g:g} g ({r.status}{' ' + r.reason if r.reason else ''})",
+                s.add(ActuatorEvent(actuator_id="doser", action="DOSE", source=source, issued_by=by, cmd_id=cmd_id,
+                                    reason=(f"target {grams:g} g fertilizer ({target_sol:.0f} g solution), delivered "
+                                            f"{delivered:g} g ({sol:g} g solution) — {r.status}{' ' + r.reason if r.reason else ''}"),
                                     duration_s=(finished - started).total_seconds(), occurred_at=finished))
             if r.status != "complete" and r.reason != "STOPPED":
-                self.alerts.sync([AlertSignal(f"auger:{r.reason}:{finished.isoformat()}", "high", "auger", r.reason or "DOSE_ABORTED",
-                                              f"Dose aborted after {r.delivered_g:g} of {grams:g} g ({r.reason})", kind="event")], finished)
+                self.alerts.sync([AlertSignal(f"doser:{r.reason}:{finished.isoformat()}", "high", "doser", r.reason or "DOSE_ABORTED",
+                                              f"Dose aborted after {delivered:g} of {grams:g} g ({r.reason})", kind="event")], finished)
             with self.lock:
                 self.engine.dose_finished(finished)
-            log.info("dose %s: target %.1f g delivered %.1f g %s", r.status, grams, r.delivered_g, r.reason)
+            log.info("dose %s: target %.1f g (%.0f g solution) delivered %.2f g (%.1f g solution) %s",
+                     r.status, grams, target_sol, delivered, sol, r.reason)
 
-        threading.Thread(target=run, name="auger-dose", daemon=True).start()
+        threading.Thread(target=run, name="doser-dose", daemon=True).start()

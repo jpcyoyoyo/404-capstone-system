@@ -89,5 +89,5 @@ def fertigation_request(ec: ParamState | None, bands: dict[str, Band]) -> Reques
         return None
     b = bands["ec"]
     if ec.value < b.lo - b.deadband:
-        return Request("auger", True, RULE_GATING, "ec", f"EC {ec.value:.2f} < {b.lo - b.deadband:.2f} mS/cm")
+        return Request("doser", True, RULE_GATING, "ec", f"EC {ec.value:.2f} < {b.lo - b.deadband:.2f} mS/cm")
     return None

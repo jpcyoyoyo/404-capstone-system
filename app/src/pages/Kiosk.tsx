@@ -19,8 +19,8 @@ import { METRIC_ICON, ACTUATOR_ICON, statusColor } from '../components/display';
 import { alertTitle } from '../contract/codes';
 import { timeAgo, untilText } from '../components/format';
 
-const TILES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'hopper_weight'];
-const DEVICES = ['irrigation', 'lights', 'auger', 'fan_exhaust'];
+const TILES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'stock_weight'];
+const DEVICES = ['irrigation', 'lights', 'doser', 'fan_exhaust'];
 
 const KioskView: React.FC = () => {
   const gh = useGreenhouse();
@@ -39,7 +39,7 @@ const KioskView: React.FC = () => {
         <div>
           <div style={{ fontSize: 'clamp(20px, 3vw, 44px)', fontWeight: 800 }}>🌿 {gh.meta.name}</div>
           <div style={{ fontSize: 'clamp(12px, 1.4vw, 22px)', color: 'var(--sg-muted)' }}>
-            {stage?.name} stage · {stage?.irrigation_mode} irrigation · updated {timeAgo(gh.lastUpdate)}
+            {gh.activePreset ? `${gh.activePreset.name} · ` : ''}{stage?.name} stage · {stage?.irrigation_mode} irrigation · updated {timeAgo(gh.lastUpdate)}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -60,8 +60,8 @@ const KioskView: React.FC = () => {
                 <IonIcon icon={METRIC_ICON[k]} style={{ color: c }} /> {METRIC_INFO[k].label}
               </div>
               <div style={{ fontSize: 'clamp(28px, 5vw, 84px)', fontWeight: 800, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
-                {k === 'hopper_weight' && m.value !== null ? (m.value / 1000).toFixed(2) : formatMetric(k, m.value)}
-                <span style={{ fontSize: '0.35em', fontWeight: 500, color: 'var(--sg-muted)', marginLeft: 6 }}>{m.value !== null ? (k === 'hopper_weight' ? 'kg' : m.unit) : ''}</span>
+                {k === 'stock_weight' && m.value !== null ? (m.value / 1000).toFixed(2) : formatMetric(k, m.value)}
+                <span style={{ fontSize: '0.35em', fontWeight: 500, color: 'var(--sg-muted)', marginLeft: 6 }}>{m.value !== null ? (k === 'stock_weight' ? 'kg' : m.unit) : ''}</span>
               </div>
               <div style={{ fontSize: 'clamp(11px, 1.2vw, 18px)', color: m.note ? c : 'var(--sg-dim)' }}>
                 {m.note ?? (m.band ? `target ${m.band.min}–${m.band.max}` : '')}

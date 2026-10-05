@@ -4,14 +4,15 @@
 // useGreenhouse() and only look at `mode`/`link` to label what they show.
 import type {
   Ack, ActuatorState, AlertItem, AuditEntry, CalibrationBody, CalibrationEntry, CommandRequest, EventEntry,
-  FertilizerReport, GreenhouseMeta, HistoryResult, Reading, Threshold, UserItem, WaterDay, ZoneSummary,
+  ActivePreset, FertilizerReport, GreenhouseMeta, HistoryResult, PresetBands, PresetList, Reading, Threshold, ThresholdPreset,
+  UserItem, WaterDay, ZoneSummary,
 } from '../contract/types';
 
 export type Link = 'local' | 'remote' | 'demo' | 'offline';
 
 export type MetricKey =
   | 'temperature' | 'humidity' | 'soil_moisture' | 'light' | 'co2' | 'ph' | 'ec'
-  | 'water_level' | 'water_temperature' | 'water_flow' | 'hopper_weight';
+  | 'water_level' | 'water_temperature' | 'water_flow' | 'stock_weight';
 
 export type MetricStatus = 'ok' | 'warn' | 'crit' | 'unknown';
 
@@ -46,6 +47,14 @@ export interface DataService {
   history(q: HistoryQuery): Promise<HistoryResult>;
   thresholds(stage: string): Promise<Threshold[]>;
   putThresholds(stage: string, list: { parameter: string; min: number; max: number; deadband?: number }[]): Promise<Threshold[]>;
+  /** Plant presets (all three stages). Writes are admin-only and on the greenhouse network only. */
+  presets(): Promise<PresetList>;
+  /** Omit bands to save the thresholds currently in force. */
+  createPreset(p: { name: string; note?: string; bands?: PresetBands }): Promise<ThresholdPreset>;
+  editPreset(id: string, patch: { name?: string; note?: string; bands?: PresetBands }): Promise<ThresholdPreset>;
+  deletePreset(id: string): Promise<void>;
+  /** Writes all 21 bands at once; the control loop uses them from the next cycle. */
+  applyPreset(id: string): Promise<{ active: ActivePreset | null; changed: number }>;
   alerts(status?: 'all' | 'open' | 'unacknowledged', limit?: number): Promise<AlertItem[]>;
   ackAlert(id: number): Promise<AlertItem>;
   audit(limit?: number): Promise<AuditEntry[]>;
@@ -81,6 +90,8 @@ export interface GreenhouseData {
   activeStageId: string;
   /** Thresholds for the active stage, keyed by parameter. */
   thresholds: Record<string, Threshold>;
+  /** The plant preset the thresholds came from, if any. */
+  activePreset: ActivePreset | null;
   openAlerts: AlertItem[];
   unackedCount: number;
   /** Solar/battery telemetry; null unless the greenhouse has the energy capability. */

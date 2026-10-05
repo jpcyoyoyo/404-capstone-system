@@ -33,6 +33,16 @@ def sync_registry(db: Database, reg: Registry) -> None:
                 row = Actuator(id=ad.id, state=False, mode="AUTO")
             row.name, row.kind, row.group, row.installed = ad.name, ad.kind, ad.group, ad.installed
             s.merge(row)
+        # Rows the registry no longer lists (e.g. the old `auger` and `hopper_01`, replaced by `doser`
+        # and `stock_01` on 4 Oct 2026) are kept for their history but marked not installed.
+        known_s = {sd.id for sd in reg.sensors}
+        known_a = {ad.id for ad in reg.physical_actuators}
+        for row in s.execute(select(Sensor)).scalars():
+            if row.id not in known_s:
+                row.installed = False
+        for row in s.execute(select(Actuator)).scalars():
+            if row.id not in known_a:
+                row.installed = False
         for st in reg.stages:
             row = s.get(GrowthStage, st.id) or GrowthStage(id=st.id)
             row.name, row.sequence, row.irrigation_mode, row.description = st.name, st.sequence, st.irrigation_mode, st.description
@@ -46,6 +56,8 @@ def sync_registry(db: Database, reg: Registry) -> None:
                                     deadband=reg.deadbands.get(p, 0.0), updated_by="registry"))
     if db.kv_get(DEFAULT_STAGE_KEY) is None:
         db.kv_set(DEFAULT_STAGE_KEY, reg.stages[0].id)
+    from .presets import sync_builtin
+    sync_builtin(db, reg)
 
 
 def create_user(db: Database, email: str, password: str, name: str, role: str = "admin") -> User:

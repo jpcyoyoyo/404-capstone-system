@@ -9,8 +9,8 @@ wiring AND the registry agree. Used by the Component Assembly Procedures (Sectio
   greenhouse hw on lights --seconds 5        drive one output, then switch it off again
   greenhouse hw relay IN5 --seconds 2        click one relay input (or `all`), even unassigned or not-installed ones
   greenhouse hw servo servo_main --pulse 1500
-  greenhouse hw jog --steps 200 [--reverse]  turn the auger stepper
-  greenhouse hw dose --grams 20              closed-loop dose against the load cell
+  greenhouse hw prime --seconds 5            run the dosing pump for a fixed time (fill the tube, bench test)
+  greenhouse hw dose --grams 20 [--solution] weighed dose: grams of fertilizer (or of solution with --solution)
   greenhouse hw watch [--node node_a]        print node MQTT messages as they arrive
   greenhouse hw clear-sim-calibrations       remove the simulator's calibration constants (before real sensors)
 
@@ -81,8 +81,8 @@ def cmd_list(reg: Registry) -> None:
             where = f"SSR input on {e['pin']}"
         elif a.kind == "servo":
             where = f"PCA9685 ch{e['pca9685_channel']} (open {e.get('open_pulse_us')} µs, closed {e.get('closed_pulse_us')} µs)"
-        elif a.kind == "stepper":
-            where = f"STEP {e['step_pin']}, DIR {e['dir_pin']}"
+        elif a.kind == "dosing_pump":
+            where = f"{e['channel']} ({inputs.get(e['channel'])}) — dosing pump, runs only in a weighed dose"
         else:
             where = a.kind
         flag = "" if a.installed else "   [not installed]"
@@ -124,6 +124,8 @@ def cmd_on(reg: Registry, hal, aid: str, seconds: float, yes: bool) -> None:
     a = _actuator(reg, aid)
     if not a.installed:
         sys.exit(f"{aid} is marked installed: false in the registry.")
+    if a.kind == "dosing_pump":
+        sys.exit(f"{aid} only runs in a weighed dose; use `hw prime --seconds N` or `hw dose --grams G`.")
     if aid == "pump" and not yes:
         sys.exit("The pressure washer must only run with water in the reservoir, the regulator fitted and a "
                  "valve open. Add --yes when that is true.")
@@ -182,26 +184,36 @@ def cmd_servo(reg: Registry, hal, aid: str, pulse: float, hold: float) -> None:
     print("released")
 
 
-def cmd_jog(hal, steps: int, reverse: bool) -> None:
-    print(f"auger {'reverse' if reverse else 'forward'} {steps} steps")
-    t0 = time.monotonic()
-    hal.jog(steps, reverse)
-    print(f"done in {time.monotonic() - t0:.1f} s")
+def cmd_prime(hal, seconds: float) -> None:
+    if not 0 < seconds <= 60:
+        sys.exit("--seconds must be between 0 and 60")
+    print(f"dosing pump ON for {seconds:g} s …", flush=True)
+    hal.prime(seconds)
+    print("dosing pump OFF")
 
 
-def cmd_dose(reg: Registry, hal, db, grams: float) -> None:
+def cmd_dose(reg: Registry, hal, db, grams: float, solution: bool) -> None:
+    from . import fertigation as F
     from .services.common import CalibrationStore
-    hopper = next((s for s in reg.sensors if s.type == "hopper_weight"), None)
-    if hopper is None:
-        sys.exit("No hopper_weight sensor in the registry.")
-    consts = CalibrationStore(db).get(hopper.id) if db is not None else None
+    bottle = next((s for s in reg.sensors if s.type == "stock_weight"), None)
+    if bottle is None:
+        sys.exit("No stock_weight sensor in the registry.")
+    consts = CalibrationStore(db).get(bottle.id) if db is not None else None
     if not consts:
-        sys.exit("The load cell has no calibration yet (Calibration screen → hopper_01, or procedure A13).")
-    hal.hopper_constants = consts
+        sys.exit(f"The load cell has no calibration yet (Calibration screen → {bottle.id}, or procedure A8).")
+    hal.stock_constants = consts
     fert = reg.control.get("fertigation", {})
-    print(f"dosing {grams:g} g …", flush=True)
-    r = hal.dose(grams, float(fert.get("tolerance_g", 2)), float(fert.get("max_dose_time_s", 120)), lambda: True)
-    print(f"{r.status}: delivered {r.delivered_g:g} g (error {r.delivered_g - grams:+.1f} g){' ' + r.reason if r.reason else ''}")
+    conc = F.stock_g_per_kg(fert)
+    target_sol = grams if solution else F.to_solution(grams, conc)
+    tol_sol = F.to_solution(float(fert.get("tolerance_g", 0.5)), conc)
+    what = f"{target_sol:g} g of solution" + ("" if solution else f" ({grams:g} g fertilizer at {conc:g} g/kg)")
+    print(f"dosing {what} …", flush=True)
+    t0 = time.monotonic()
+    r = hal.dose(target_sol, tol_sol, float(fert.get("max_dose_time_s", 600)), lambda: True)
+    took = time.monotonic() - t0
+    fert_g = F.to_fertilizer(r.delivered_g, conc)
+    print(f"{r.status}: delivered {r.delivered_g:g} g of solution (error {r.delivered_g - target_sol:+.1f} g)"
+          f" = {fert_g:.2f} g fertilizer, in {took:.0f} s{' ' + r.reason if r.reason else ''}")
 
 
 def cmd_watch(settings, reg: Registry, node: str | None, seconds: float) -> None:
@@ -255,9 +267,10 @@ def add_parser(sub) -> None:
     rl.add_argument("--seconds", type=float, default=2.0); rl.add_argument("--force", action="store_true")
     s = hs.add_parser("servo"); s.add_argument("id"); s.add_argument("--pulse", type=float, required=True)
     s.add_argument("--hold", type=float, default=2.0); s.add_argument("--force", action="store_true")
-    j = hs.add_parser("jog"); j.add_argument("--steps", type=int, default=200); j.add_argument("--reverse", action="store_true")
-    j.add_argument("--force", action="store_true")
-    ds = hs.add_parser("dose"); ds.add_argument("--grams", type=float, required=True); ds.add_argument("--force", action="store_true")
+    pr = hs.add_parser("prime"); pr.add_argument("--seconds", type=float, default=5.0); pr.add_argument("--force", action="store_true")
+    ds = hs.add_parser("dose"); ds.add_argument("--grams", type=float, required=True)
+    ds.add_argument("--solution", action="store_true", help="--grams is grams of stock solution, not fertilizer")
+    ds.add_argument("--force", action="store_true")
     w = hs.add_parser("watch"); w.add_argument("--node", default=None); w.add_argument("--seconds", type=float, default=120)
     hs.add_parser("clear-sim-calibrations")
 
@@ -283,9 +296,9 @@ def run(args, settings, reg: Registry, db) -> None:
             cmd_on(reg, hal, args.id, args.seconds, args.yes)
         elif args.hw == "servo":
             cmd_servo(reg, hal, args.id, args.pulse, args.hold)
-        elif args.hw == "jog":
-            cmd_jog(hal, args.steps, args.reverse)
+        elif args.hw == "prime":
+            cmd_prime(hal, args.seconds)
         elif args.hw == "dose":
-            cmd_dose(reg, hal, db, args.grams)
+            cmd_dose(reg, hal, db, args.grams, args.solution)
     finally:
         hal.close()

@@ -244,12 +244,12 @@ def test_manual_irrigation_expires(engine, feed):
 # ── Test 10 step 4: fertigation gating ─────────────────────────────────────
 def test_fertigation_gated_when_soil_wet(engine, feed):
     feed.all(T0, soil_moisture=76)             # at/above growth max 75
-    r = engine.command(CommandIn("c-dose", "auger", "DOSE", T0, "admin", target_g=20), T0)
+    r = engine.command(CommandIn("c-dose", "doser", "DOSE", T0, "admin", target_g=20), T0)
     assert r.status == "REJECTED" and r.reason == "FERTIGATION_GATED"
     feed.all(T0, soil_moisture=65)
-    r = engine.command(CommandIn("c-dose2", "auger", "DOSE", T0, "admin", target_g=20), T0)
+    r = engine.command(CommandIn("c-dose2", "doser", "DOSE", T0, "admin", target_g=20), T0)
     assert r.status == "ACCEPTED" and r.dose_g == 20
-    r = engine.command(CommandIn("c-dose3", "auger", "DOSE", T0, "admin", target_g=20), T0)
+    r = engine.command(CommandIn("c-dose3", "doser", "DOSE", T0, "admin", target_g=20), T0)
     assert r.reason == "DOSING"
 
 
@@ -283,10 +283,53 @@ def test_emergency_stop(engine, feed):
     assert not on(engine, "pump") and not on(engine, "fan_exhaust")
 
 
-def test_auger_off_requests_dose_stop(engine, feed):
+def test_doser_off_requests_dose_stop(engine, feed):
     feed.all(T0, soil_moisture=65)
-    assert engine.command(CommandIn("d1", "auger", "DOSE", T0, "admin", target_g=50), T0).status == "ACCEPTED"
-    r = engine.command(CommandIn("d2", "auger", "OFF", T0, "admin"), T0)
+    assert engine.command(CommandIn("d1", "doser", "DOSE", T0, "admin", target_g=50), T0).status == "ACCEPTED"
+    r = engine.command(CommandIn("d2", "doser", "OFF", T0, "admin"), T0)
     assert r.status == "ACCEPTED" and engine.dose_stop_requested
     engine.dose_finished(T0)
     assert not engine.dose_stop_requested and not engine.dosing
+
+
+def test_dose_refused_when_stock_low(engine, feed):
+    # 800 g of 100 g/kg stock with a 100 g reserve → 70 g of fertilizer available
+    feed.all(T0, soil_moisture=65)
+    r = engine.command(CommandIn("s1", "doser", "DOSE", T0, "admin", target_g=80), T0)
+    assert r.status == "REJECTED" and r.reason == "STOCK_LOW"
+    assert engine.command(CommandIn("s2", "doser", "DOSE", T0, "admin", target_g=60), T0).status == "ACCEPTED"
+
+
+def test_stock_low_alert(engine, feed):
+    feed.all(T0, soil_moisture=65, stock_weight=250)      # 15 g available < one 20 g dose
+    res = engine.tick(T0)
+    assert any(a.code == "STOCK_LOW" for a in res.alerts)
+    feed.all(T0 + timedelta(seconds=30), soil_moisture=65, stock_weight=1500)
+    res = engine.tick(T0 + timedelta(seconds=30))
+    assert not any(a.code == "STOCK_LOW" for a in res.alerts)
+
+
+def test_doser_cannot_be_switched_on(engine, feed):
+    feed.all(T0)
+    r = engine.command(CommandIn("p1", "doser", "ON", T0, "admin"), T0)
+    assert r.status == "REJECTED" and r.reason == "BAD_ACTION"
+
+
+def test_stock_conversion():
+    from greenhouse import fertigation as F
+    assert F.to_solution(20, 100) == 200
+    assert F.to_fertilizer(200, 100) == 20
+    assert F.available_fertilizer_g(1100, {"stock_g_per_kg": 100, "stock_reserve_g": 100}) == 100
+
+
+def test_sim_dose_weighs_solution_and_detects_no_flow(reg):
+    from greenhouse.hal.sim import Environment, SimHal
+    env = Environment(reg, seed=1)
+    hal = SimHal(reg, env)
+    start = env.stock_g
+    r = hal.dose(200, 5, 30, lambda: True)
+    assert r.status == "complete" and abs(r.delivered_g - 200) <= 6
+    assert abs((start - env.stock_g) - r.delivered_g) < 0.2
+    env.apply_fault({"kind": "block_doser"})
+    r = hal.dose(200, 5, 30, lambda: True)
+    assert r.status == "aborted" and r.reason == "NO_FLOW" and r.delivered_g == 0

@@ -26,9 +26,11 @@ from ..config import Settings
 from ..control.aggregate import aggregate
 from ..control.types import Reading as CReading
 from ..db import Database
+from ..fertigation import fertigation_meta
 from ..models import (Actuator, ActuatorEvent, Alert, AuditLog, Calibration, Command, FertigationDose,
-                      GrowthStage, Sensor, SensorReading, SensorReading15m, Threshold, User)
+                      GrowthStage, Sensor, SensorReading, SensorReading15m, Threshold, ThresholdPreset, User)
 from ..registry import PARAMS, Registry
+from .. import presets as presetmod
 from ..seed import DEFAULT_STAGE_KEY, create_user
 from ..timeutil import iso, parse_iso, utcnow
 from . import sync as syncmod
@@ -112,7 +114,7 @@ class CommandBody(BaseModel):
     cmd_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     action: Literal["ON", "OFF", "AUTO", "DOSE", "ESTOP"]
     duration_s: int | None = Field(default=None, ge=1, le=12 * 3600)
-    target_g: float | None = Field(default=None, gt=0, le=500)
+    target_g: float | None = Field(default=None, gt=0, le=200)   # grams of fertilizer
     circuit: Literal["fog", "drip", "sprinkler"] | None = None
     reason: str = "MANUAL_OVERRIDE"
     ts: str | None = None
@@ -130,6 +132,19 @@ class ThresholdIn(BaseModel):
         if v not in PARAMS:
             raise ValueError(f"unknown parameter {v}")
         return v
+
+
+class PresetIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    note: str = Field(default="", max_length=255)
+    # Omitted on create = save the thresholds currently in force.
+    bands: dict[str, dict[str, dict[str, float]]] | None = None
+
+
+class PresetEditIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    note: str | None = Field(default=None, max_length=255)
+    bands: dict[str, dict[str, dict[str, float]]] | None = None
 
 
 class StageIn(BaseModel):
@@ -332,7 +347,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
             "id": reg.greenhouse_id, "name": reg.greenhouse_name, "timezone": reg.timezone, "role": settings.role,
             "capabilities": {**reg.capabilities, "remote_commands": reg.capabilities.get("remote_commands", False) if is_cloud else True},
             "network_mode": cache.status.get("network_mode", settings.network_mode),
-            "active_stage": db.kv_get(DEFAULT_STAGE_KEY), "stages": stage_list,
+            "active_stage": db.kv_get(DEFAULT_STAGE_KEY), "active_preset": presetmod.active_info(db), "stages": stage_list,
             "zones": [{"id": z.id, "name": z.name, "description": z.description} for z in reg.zones],
             "nodes": [{"id": n.id, "board": n.board, "zone": n.zone} for n in reg.nodes],
             "sensors": [{"id": sd.id, "type": sd.type, "zone": sd.zone, "host": sd.host, "unit": sd.unit,
@@ -344,7 +359,8 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
                           for a in reg.actuators],
             "control": {"cycle_s": reg.control.get("cycle_s", 30), "command_expiry_s": reg.control.get("command_expiry_s", 60),
                         "manual_override_max_s": reg.control.get("manual_override_max_s", 1800),
-                        "photoperiod": reg.control.get("photoperiod")},
+                        "photoperiod": reg.control.get("photoperiod"),
+                        "fertigation": fertigation_meta(reg.control.get("fertigation", {}))},
             "server_time": iso(utcnow()),
         }
 
@@ -374,7 +390,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
     def zone_summary(readings: dict[str, dict]) -> dict:
         creadings = {sid: CReading(sid, p.get("type", ""), int(p.get("zone_id", 0)), p.get("value"), p.get("quality", ""),
                                    parse_iso(p.get("ts")) or utcnow()) for sid, p in readings.items()}
-        params = aggregate(reg, creadings, list(PARAMS) + ["water_level", "water_temperature", "hopper_weight", "water_flow"])
+        params = aggregate(reg, creadings, list(PARAMS) + ["water_level", "water_temperature", "stock_weight", "water_flow"])
         return {t: {"value": ps.value, "manual_required": ps.manual_required_zones,
                     "zones": {str(z): {"median": zv.median, "valid": zv.n_valid, "total": zv.n_total} for z, zv in ps.zones.items()}}
                 for t, ps in params.items()}
@@ -401,6 +417,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
         readings = live_readings()
         st = controller_status()
         return {"greenhouse_id": reg.greenhouse_id, "server_time": iso(utcnow()), "active_stage": db.kv_get(DEFAULT_STAGE_KEY),
+                "active_preset": presetmod.active_info(db),
                 "controller": {"online": st.get("online", False), "ts": st.get("ts"), "network_mode": st.get("network_mode"),
                                "nodes": st.get("nodes", {})},
                 "readings": readings, "zones": zone_summary(readings), "actuators": actuators_live(),
@@ -555,8 +572,157 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
         for c in changed:
             audit(user["email"], "threshold_updated", f"threshold:{stage}:{c['parameter']}", c)
         if changed:
+            refresh_preset_modified()
             bus.publish(topics.config_changed, {"what": "thresholds", "stage": stage, "ts": iso(utcnow())}, qos=1)
         return thresholds_for(stage)
+
+    # ── plant presets (all three stages at once) ────────────────────────
+    def refresh_preset_modified() -> None:
+        pid = db.kv_get(presetmod.ACTIVE_KEY)
+        if not pid:
+            return
+        with db.session() as s:
+            p = s.get(ThresholdPreset, pid)
+            bands = p.bands if p is not None else None
+        same = bands is not None and presetmod.same_bands(presetmod.current_bands(db, reg), bands)
+        db.kv_set(presetmod.MODIFIED_KEY, "0" if same else "1")
+
+    def live_presets(s) -> list[ThresholdPreset]:
+        rows = s.execute(select(ThresholdPreset).where(ThresholdPreset.deleted_at.is_(None))).scalars().all()
+        return sorted(rows, key=lambda p: (not p.builtin, p.name.lower()))
+
+    def name_taken(s, name: str, except_id: str | None = None) -> bool:
+        return any(p.name.strip().lower() == name.strip().lower() and p.id != except_id for p in live_presets(s))
+
+    def clean_bands(bands) -> dict:
+        try:
+            return presetmod.validate_bands(reg, bands)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    def no_cloud_writes():
+        if is_cloud:
+            raise HTTPException(409, "presets are changed on the greenhouse network")
+
+    @app.get("/threshold-presets", tags=["config"])
+    def list_presets(user: dict = Depends(reader)):
+        with db.session() as s:
+            items = [presetmod.preset_dict(p) for p in live_presets(s)]
+        return {"active": presetmod.active_info(db), "presets": items}
+
+    @app.post("/threshold-presets", tags=["config"], status_code=201)
+    def create_preset(body: PresetIn, user: dict = Depends(admin)):
+        no_cloud_writes()
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(422, "name is required")
+        from_current = body.bands is None
+        bands = clean_bands(presetmod.current_bands(db, reg) if from_current else body.bands)
+        pid = f"p-{uuid.uuid4().hex[:8]}"
+        with db.session() as s:
+            if name_taken(s, name):
+                raise HTTPException(409, f"a preset named {name!r} already exists")
+            p = ThresholdPreset(id=pid, name=name, note=body.note.strip(), bands=bands, builtin=False,
+                                created_by=user["email"], updated_by=user["email"])
+            s.add(p)
+            s.flush()
+            out = presetmod.preset_dict(p)
+        audit(user["email"], "preset_created", f"preset:{pid}", {"name": name, "from_current": from_current})
+        prev = presetmod.active_info(db)
+        if from_current and (prev is None or prev["modified"]):
+            # The thresholds in force now have a name (an unmodified active preset keeps its place).
+            db.kv_set(presetmod.ACTIVE_KEY, pid)
+            db.kv_set(presetmod.MODIFIED_KEY, "0")
+        bus.publish(topics.config_changed, {"what": "presets", "ts": iso(utcnow())}, qos=1)
+        return out
+
+    @app.put("/threshold-presets/{pid}", tags=["config"])
+    def edit_preset(pid: str, body: PresetEditIn, user: dict = Depends(admin)):
+        no_cloud_writes()
+        bands = clean_bands(body.bands) if body.bands is not None else None
+        with db.session() as s:
+            p = s.get(ThresholdPreset, pid)
+            if p is None or p.deleted_at is not None:
+                raise HTTPException(404, "unknown preset")
+            if p.builtin:
+                raise HTTPException(409, "the built-in preset comes from the registry and cannot be changed; save a copy instead")
+            fields = []
+            if body.name is not None and body.name.strip() != p.name:
+                if not body.name.strip():
+                    raise HTTPException(422, "name is required")
+                if name_taken(s, body.name, except_id=pid):
+                    raise HTTPException(409, f"a preset named {body.name.strip()!r} already exists")
+                p.name = body.name.strip()
+                fields.append("name")
+            if body.note is not None and body.note.strip() != (p.note or ""):
+                p.note = body.note.strip()
+                fields.append("note")
+            if bands is not None and not presetmod.same_bands(bands, p.bands):
+                p.bands = bands
+                fields.append("bands")
+            if fields:
+                p.updated_at, p.updated_by = utcnow(), user["email"]
+            out = presetmod.preset_dict(p)
+        if fields:
+            audit(user["email"], "preset_updated", f"preset:{pid}", {"name": out["name"], "fields": fields})
+            if "bands" in fields:
+                refresh_preset_modified()
+            bus.publish(topics.config_changed, {"what": "presets", "ts": iso(utcnow())}, qos=1)
+        return out
+
+    @app.delete("/threshold-presets/{pid}", tags=["config"])
+    def delete_preset(pid: str, user: dict = Depends(admin)):
+        no_cloud_writes()
+        with db.session() as s:
+            p = s.get(ThresholdPreset, pid)
+            if p is None or p.deleted_at is not None:
+                raise HTTPException(404, "unknown preset")
+            if p.builtin:
+                raise HTTPException(409, "the built-in preset cannot be deleted")
+            p.deleted_at, p.updated_at, p.updated_by = utcnow(), utcnow(), user["email"]
+            name = p.name
+        if db.kv_get(presetmod.ACTIVE_KEY) == pid:
+            # The thresholds stay as they are; they just no longer have a preset name.
+            db.kv_set(presetmod.ACTIVE_KEY, "")
+        audit(user["email"], "preset_deleted", f"preset:{pid}", {"name": name})
+        bus.publish(topics.config_changed, {"what": "presets", "ts": iso(utcnow())}, qos=1)
+        return {"ok": True}
+
+    @app.post("/threshold-presets/{pid}/apply", tags=["config"])
+    def apply_preset(pid: str, user: dict = Depends(admin)):
+        no_cloud_writes()
+        with db.session() as s:
+            p = s.get(ThresholdPreset, pid)
+            if p is None or p.deleted_at is not None:
+                raise HTTPException(404, "unknown preset")
+            name = p.name
+            bands = p.bands
+        bands = clean_bands(bands)  # a preset saved under an older registry may no longer be valid
+        changes = []
+        with db.session() as s:
+            rows = {(t.stage_id, t.parameter): t for t in s.execute(select(Threshold)).scalars()}
+            for stage, params in bands.items():
+                for param, b in params.items():
+                    row = rows.get((stage, param))
+                    old = {"min": row.min_value, "max": row.max_value, "deadband": row.deadband} if row else None
+                    if row is None:
+                        s.add(Threshold(stage_id=stage, parameter=param, min_value=b["min"], max_value=b["max"],
+                                        deadband=b["deadband"], updated_by=user["email"]))
+                    elif (row.min_value, row.max_value, row.deadband) != (b["min"], b["max"], b["deadband"]):
+                        row.min_value, row.max_value, row.deadband = b["min"], b["max"], b["deadband"]
+                        row.version += 1
+                        row.updated_at, row.updated_by = utcnow(), user["email"]
+                    else:
+                        continue
+                    changes.append({"stage": stage, "parameter": param, "old": old, "new": b})
+        old_active = presetmod.active_info(db)
+        db.kv_set(presetmod.ACTIVE_KEY, pid)
+        db.kv_set(presetmod.MODIFIED_KEY, "0")
+        audit(user["email"], "preset_applied", f"preset:{pid}",
+              {"name": name, "previous": old_active["name"] if old_active else None, "changed": len(changes),
+               "changes": changes})
+        bus.publish(topics.config_changed, {"what": "thresholds", "stage": "all", "ts": iso(utcnow())}, qos=1)
+        return {"active": presetmod.active_info(db), "changed": len(changes)}
 
     @app.get("/greenhouse/{gid}/stage", tags=["config"])
     def get_stage(gid: str, user: dict = Depends(reader)):

@@ -12,7 +12,7 @@ import mqtt, { MqttClient } from 'mqtt';
 import { ApiError, type ApiClient } from '../api/client';
 import { REGISTRY_META } from '../contract/registry.generated';
 import type {
-  ActuatorState, AlertItem, GreenhouseMeta, LiveSnapshot, MqttInfo, Reading, Threshold, ZoneSummary,
+  ActivePreset, ActuatorState, AlertItem, GreenhouseMeta, LiveSnapshot, MqttInfo, Reading, Threshold, ZoneSummary,
 } from '../contract/types';
 import { useAuth } from '../contexts/AuthContext';
 import { useConnection } from '../contexts/ConnectionContext';
@@ -55,6 +55,7 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
   const [actuators, setActuators] = useState<Record<string, ActuatorState>>(cached?.snapshot.actuators ?? {});
   const [stage, setStage] = useState<string>(cached?.snapshot.active_stage ?? 'growth');
   const [thresholds, setThresholds] = useState<Threshold[]>(cached?.thresholds ?? []);
+  const [activePreset, setActivePreset] = useState<ActivePreset | null>(cached?.snapshot.active_preset ?? null);
   const [openAlerts, setOpenAlerts] = useState<AlertItem[]>([]);
   const [unackedCount, setUnacked] = useState(0);
   const [controllerOnline, setOnline] = useState(false);
@@ -75,6 +76,11 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     try { setThresholds(await api.thresholds(s)); } catch { /* keep previous */ }
   }, [api]);
 
+  const loadActivePreset = useCallback(async () => {
+    if (!api) return;
+    try { setActivePreset((await api.presets()).active); } catch { /* keep previous */ }
+  }, [api]);
+
   const loadAlerts = useCallback(async () => {
     if (!api) return;
     try {
@@ -92,6 +98,7 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     setNodes(snap.controller.nodes ?? {});
     setLastUpdate(snap.server_time);
     if (snap.active_stage !== stageRef.current) setStage(snap.active_stage);
+    if (snap.active_preset !== undefined) setActivePreset(snap.active_preset);
     metaRef.current = m;
   }, []);
 
@@ -176,7 +183,8 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
       } else if (rest === 'alert') {
         loadAlerts();
       } else if (rest === 'config/changed') {
-        if (p.what === 'thresholds') loadThresholds(stageRef.current);
+        if (p.what === 'thresholds') { loadThresholds(stageRef.current); loadActivePreset(); }
+        else if (p.what === 'presets') loadActivePreset();
         else refresh();
       }
     });
@@ -195,7 +203,7 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
       clientRef.current = null;
       setStreaming(false);
     };
-  }, [api, mqttInfo?.url, mqttInfo?.username, mqttInfo?.password, mqttInfo?.prefix, loadAlerts, loadThresholds, refresh]);
+  }, [api, mqttInfo?.url, mqttInfo?.username, mqttInfo?.password, mqttInfo?.prefix, loadAlerts, loadThresholds, loadActivePreset, refresh]);
 
   // ── polling (always slow; fast when MQTT is down) ───────────────────
   useEffect(() => {
@@ -221,7 +229,22 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
   const data = useMemo<DataService>(() => api ? {
     history: q => api.history(metaRef.current.id, q),
     thresholds: s => api.thresholds(s),
-    putThresholds: async (s, list) => { const r = await api.putThresholds(s, list); if (s === stageRef.current) setThresholds(r); return r; },
+    putThresholds: async (s, list) => {
+      const r = await api.putThresholds(s, list);
+      if (s === stageRef.current) setThresholds(r);
+      loadActivePreset();
+      return r;
+    },
+    presets: () => api.presets(),
+    createPreset: async p => { const r = await api.createPreset(p); loadActivePreset(); return r; },
+    editPreset: async (id, p) => { const r = await api.editPreset(id, p); loadActivePreset(); return r; },
+    deletePreset: async id => { await api.deletePreset(id); loadActivePreset(); },
+    applyPreset: async id => {
+      const r = await api.applyPreset(id);
+      setActivePreset(r.active);
+      await loadThresholds(stageRef.current);
+      return r;
+    },
     alerts: (st, l) => api.alerts(st, l),
     ackAlert: async id => { const r = await api.ackAlert(id); loadAlerts(); return r; },
     audit: l => api.audit(l),
@@ -234,10 +257,11 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     addUser: u => api.addUser(u),
     patchUser: (id, p) => api.patchUser(id, p),
   } : {
-    history: offline, thresholds: offline, putThresholds: offline, alerts: offline, ackAlert: offline, audit: offline,
+    history: offline, thresholds: offline, putThresholds: offline, presets: offline, createPreset: offline,
+    editPreset: offline, deletePreset: offline, applyPreset: offline, alerts: offline, ackAlert: offline, audit: offline,
     events: offline, waterUsage: offline, fertilizer: offline, calibrations: offline, calibrate: offline, users: offline,
     addUser: offline, patchUser: offline,
-  }, [api, loadAlerts]);
+  }, [api, loadAlerts, loadActivePreset, loadThresholds]);
 
   const sendCommand = useCallback<GreenhouseData['sendCommand']>(async (c) => {
     if (!api) return { cmd_id: c.cmd_id ?? '', status: 'REJECTED', reason: 'OFFLINE', message: 'Not connected to the controller.', ts: new Date().toISOString() };
@@ -257,9 +281,9 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
   const value: GreenhouseData = {
     mode: 'live', link, ready, error, streaming, lastUpdate,
     controllerOnline: !!api && controllerOnline, nodes,
-    meta: { ...meta, active_stage: stage },
+    meta: { ...meta, active_stage: stage, active_preset: activePreset },
     readings, zones, metrics, actuators,
-    activeStageId: stage, thresholds: thrMap, openAlerts, unackedCount,
+    activeStageId: stage, thresholds: thrMap, activePreset, openAlerts, unackedCount,
     energy: null,
     canCommand: !!api && controllerOnline && (link === 'local' || !!meta.capabilities.remote_commands),
     sendCommand, setActiveStage, refresh, reloadAlerts: loadAlerts, data,

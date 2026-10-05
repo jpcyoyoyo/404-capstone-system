@@ -44,8 +44,8 @@ const PersistentHeader: React.FC<PersistentHeaderProps> = ({
             <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--sg-text)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               🌿 {gh.meta.name}
             </span>
-            <span style={{ fontSize: 10, color: 'var(--sg-muted)' }}>
-              Petchay · {stageName} stage
+            <span style={{ fontSize: 10, color: 'var(--sg-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {gh.activePreset ? gh.activePreset.name.replace(/\s*\(default\)$/, '') : 'Custom thresholds'} · {stageName} stage
             </span>
           </div>
         </IonTitle>

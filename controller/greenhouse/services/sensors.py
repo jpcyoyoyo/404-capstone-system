@@ -39,12 +39,12 @@ class SensorService:
         self._latest: dict[str, dict[str, Any]] = {}
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
-        self._push_hopper_constants()
+        self._push_stock_constants()
 
-    def _push_hopper_constants(self) -> None:
+    def _push_stock_constants(self) -> None:
         for sd in self.reg.sensors:
-            if sd.type == "hopper_weight":
-                setattr(self.hal, "hopper_constants", self.cal.get(sd.id))
+            if sd.type == "stock_weight":
+                setattr(self.hal, "stock_constants", self.cal.get(sd.id))
 
     # ── lifecycle ────────────────────────────────────────────────────────
     def start(self) -> None:
@@ -62,7 +62,7 @@ class SensorService:
     def _on_config(self, topic: str, payload: dict) -> None:
         if payload.get("what") == "calibration":
             self.cal.refresh()
-            self._push_hopper_constants()
+            self._push_stock_constants()
 
     # ── ingest ───────────────────────────────────────────────────────────
     def _on_node_raw(self, topic: str, payload: dict) -> None:

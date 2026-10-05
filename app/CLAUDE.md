@@ -21,8 +21,8 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
 - `src/api/client.ts` — REST client, 401 → refresh once → retry.
 - `src/providers/types.ts` — the `GreenhouseData` contract both providers implement: raw `readings`
   per sensor, `zones` summaries, derived `metrics` (status vs. the active stage's thresholds),
-  `actuators`, `openAlerts`, `sendCommand()`, `setActiveStage()`, and `data` (everything fetched on
-  demand: history, thresholds, alerts, logs, reports, calibration, users).
+  `actuators`, `openAlerts`, `activePreset`, `sendCommand()`, `setActiveStage()`, and `data` (everything
+  fetched on demand: history, thresholds, plant presets, alerts, logs, reports, calibration, users).
 - `src/providers/metrics.ts` — same aggregation as the controller: median of VALID readings per
   zone, mean of the zone medians. Failed reads are `null`, never 0.
 - `src/simulation/demoEngine.ts` — in-app stand-in for the controller (same shapes, same audit

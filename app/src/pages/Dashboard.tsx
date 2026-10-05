@@ -13,7 +13,7 @@ import { fmtTime, untilText } from '../components/format';
 import { alertTitle } from '../contract/codes';
 
 const SNAPSHOT: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'ph', 'co2'];
-const SYSTEMS = ['irrigation', 'lights', 'auger', 'fan_exhaust'];
+const SYSTEMS = ['irrigation', 'lights', 'doser', 'fan_exhaust'];
 
 const Dashboard: React.FC = () => {
   const history = useHistory();
@@ -23,7 +23,7 @@ const Dashboard: React.FC = () => {
   const critical = gh.openAlerts.filter(a => a.severity === 'critical' || a.severity === 'high');
   const irr = gh.actuators.irrigation;
   const level = gh.metrics.water_level;
-  const hopper = gh.metrics.hopper_weight;
+  const stock = gh.metrics.stock_weight;
   const grey = gh.mode === 'live' && gh.link === 'offline' ? { opacity: 0.55 } : {};
 
   return (
@@ -56,7 +56,14 @@ const Dashboard: React.FC = () => {
 
         <div className="sg-card" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)' }}>
           <span className="sg-pill sg-pill-ok" style={{ marginBottom: 8, display: 'inline-block' }}>Active stage</span>
-          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sg-text)', letterSpacing: 0.5 }}>{(stage?.name ?? gh.activeStageId).toUpperCase()}</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sg-text)', letterSpacing: 0.5 }}>
+            {(stage?.name ?? gh.activeStageId).toUpperCase()}
+            {gh.activePreset && (
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-muted)', letterSpacing: 0 }}>
+                {' · '}{gh.activePreset.name}{gh.activePreset.modified ? ' (edited)' : ''}
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginTop: 2 }}>
             {stage?.description} · irrigation by {stage?.irrigation_mode}
           </div>
@@ -133,9 +140,9 @@ const Dashboard: React.FC = () => {
           <div className="sg-row-between" style={{ marginTop: 10, marginBottom: 6 }}>
             <div className="sg-row sg-gap-8">
               <IonIcon icon={flaskOutline} style={{ color: '#a855f7' }} />
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Fertilizer hopper</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Stock solution</span>
             </div>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>{hopper.value !== null ? `${(hopper.value / 1000).toFixed(2)} kg` : '—'}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>{stock.value !== null ? `${(stock.value / 1000).toFixed(2)} kg` : '—'}</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--sg-dim)' }}>
             pH {formatMetric('ph', gh.metrics.ph.value)} · water {formatMetric('water_temperature', gh.metrics.water_temperature.value)}°C

@@ -58,7 +58,7 @@ def _ds18b20_temp(lines: list[str]) -> float | None:
 
 class PiHal(Hal):
     """outputs=False is for greenhouse-sensors: on the Pi 5 a GPIO line can be held by only one
-    process, so the relay, SSR and stepper pins are claimed by greenhouse-control alone. If both
+    process, so the relay and SSR pins are claimed by greenhouse-control alone. If both
     services claimed them, whichever started second failed with "GPIO busy" and restarted forever."""
 
     def __init__(self, reg: Registry, outputs: bool = True):
@@ -70,7 +70,8 @@ class PiHal(Hal):
         self._lock = threading.RLock()
         self._outputs: dict[str, list] = {}
         self._drives_outputs = outputs
-        self._step = self._dir = None
+        self._doser_dev = None
+        self._doser = None
         active_low = bool(reg.relay_board.get("active_low", True))
         inputs = reg.relay_board.get("inputs", {})
         self._pca = None
@@ -84,10 +85,12 @@ class PiHal(Hal):
                                                     initial_value=False) for c in chans]
             elif a.kind == "ssr":
                 self._outputs[a.id] = [OutputDevice(_gpio_num(a.extra["pin"]), active_high=True, initial_value=False)]
-            elif a.kind == "stepper":
-                self._step = OutputDevice(_gpio_num(a.extra["step_pin"]), initial_value=False)
-                self._dir = OutputDevice(_gpio_num(a.extra["dir_pin"]), initial_value=False)
-                self._auger = a
+            elif a.kind == "dosing_pump":
+                # On a relay input like the others, but kept out of _outputs: only dose() and
+                # prime() may switch it on.
+                self._doser_dev = OutputDevice(_gpio_num(inputs[a.extra["channel"]]), active_high=not active_low,
+                                               initial_value=False)
+                self._doser = a
         self._sensors: dict[str, object] = {}
         self._flow_pulses = 0
         self._flow_t = time.monotonic()
@@ -114,40 +117,78 @@ class PiHal(Hal):
                 pulse_us = float(adef.extra["open_pulse_us" if on else "closed_pulse_us"])
                 ch = self._pca9685().channels[int(adef.extra["pca9685_channel"])]
                 ch.duty_cycle = int(pulse_us / 20000.0 * 0xFFFF)   # 50 Hz → 20 ms period
-            elif adef.kind == "stepper":
-                pass  # the auger only moves inside dose()
+            elif adef.kind == "dosing_pump":
+                if not on and self._doser_dev is not None:
+                    self._doser_dev.off()   # OFF (e.g. emergency stop) is honoured; ON only inside dose()
             else:
                 raise ValueError(f"unsupported actuator kind {adef.kind}")
 
     # ── dosing (closed loop against the load cell, §4.3) ─────────────────
     def dose(self, target_g: float, tolerance_g: float, max_time_s: float,
              interlocks_clear: Callable[[], bool]) -> DoseResult:
-        if not self._drives_outputs or self._step is None:
-            return DoseResult(0.0, "aborted", "NO_AUGER")
-        hopper = next(s for s in self.reg.sensors if s.type == "hopper_weight")
-        steps = int(self._auger.extra.get("steps_per_increment", 50))
+        """Pulse the peristaltic pump, let the bottle settle, weigh, repeat until the bottle has lost
+        target_g of solution. Pulses shrink near the target from the measured flow, so the last one
+        does not overshoot. The pump is OFF whenever this returns, whatever the reason."""
+        if not self._drives_outputs or self._doser_dev is None:
+            return DoseResult(0.0, "aborted", "NO_DOSER")
+        bottle = next(s for s in self.reg.sensors if s.type == "stock_weight")
+        e = self._doser.extra
+        pulse_s, settle_s = float(e.get("pulse_s", 2.0)), float(e.get("settle_s", 1.0))
+        no_flow_s = float(e.get("no_flow_s", 15))
 
         def mass() -> float | None:
-            return self._hx711_grams(hopper, samples=10)
+            return self._hx711_grams(bottle, samples=10)
 
         start = mass()
         if start is None:
             return DoseResult(0.0, "aborted", "LOAD_CELL_FAULT")
         t0 = time.monotonic()
-        delivered = 0.0
-        self._dir.on()
-        while delivered < target_g - tolerance_g:
-            if not interlocks_clear():
-                return DoseResult(delivered, "aborted", "INTERLOCK")
-            if time.monotonic() - t0 > max_time_s:
-                return DoseResult(delivered, "aborted", "AUGER_JAM")
-            for _ in range(steps):
-                self._step.on(); time.sleep(0.001); self._step.off(); time.sleep(0.001)
-            time.sleep(0.5)   # let the material settle
-            m = mass()
-            if m is not None:
+        delivered, rate, dry_run_s, misses = 0.0, None, 0.0, 0
+        try:
+            while delivered < target_g - tolerance_g:
+                if not interlocks_clear():
+                    return DoseResult(round(delivered, 1), "aborted", "INTERLOCK")
+                if time.monotonic() - t0 > max_time_s:
+                    return DoseResult(round(delivered, 1), "aborted", "TIMEOUT")
+                remaining = target_g - delivered
+                on_s = pulse_s if rate is None else max(0.2, min(pulse_s, 0.8 * remaining / rate))
+                with self._lock:
+                    self._doser_dev.on()
+                time.sleep(on_s)
+                with self._lock:
+                    self._doser_dev.off()
+                time.sleep(settle_s)   # let the bottle and the tube stop swinging
+                m = mass()
+                if m is None:
+                    misses += 1
+                    if misses >= 3:
+                        return DoseResult(round(delivered, 1), "aborted", "LOAD_CELL_FAULT")
+                    continue
+                misses = 0
+                step = (start - m) - delivered
                 delivered = start - m
-        return DoseResult(round(delivered, 1), "complete", "")
+                if step > 0.5:
+                    rate = step / on_s if rate is None else 0.5 * rate + 0.5 * step / on_s
+                    dry_run_s = 0.0
+                else:
+                    dry_run_s += on_s
+                    if dry_run_s >= no_flow_s:
+                        return DoseResult(round(delivered, 1), "aborted", "NO_FLOW")
+            return DoseResult(round(delivered, 1), "complete", "")
+        finally:
+            with self._lock:
+                self._doser_dev.off()
+
+    def prime(self, seconds: float) -> None:
+        if self._doser_dev is None:
+            raise RuntimeError("no dosing pump in the registry (or this process does not drive outputs)")
+        try:
+            with self._lock:
+                self._doser_dev.on()
+            time.sleep(seconds)
+        finally:
+            with self._lock:
+                self._doser_dev.off()
 
     # ── sensors ──────────────────────────────────────────────────────────
     def read_local(self, sensors: list[SensorDef]) -> list[RawSample]:
@@ -252,13 +293,6 @@ class PiHal(Hal):
             ch = self._pca9685().channels[int(channel)]
             ch.duty_cycle = 0 if pulse_us <= 0 else int(pulse_us / 20000.0 * 0xFFFF)
 
-    def jog(self, steps: int, reverse: bool = False, step_delay_s: float = 0.001) -> None:
-        """Turn the auger a fixed number of steps (bench test of the stepper and driver)."""
-        with self._lock:
-            self._dir.off() if reverse else self._dir.on()
-            for _ in range(int(steps)):
-                self._step.on(); time.sleep(step_delay_s); self._step.off(); time.sleep(step_delay_s)
-
     def _ultrasonic_level(self, sd: SensorDef) -> float | None:
         """A02YYUW-style UART frame: 0xFF, high, low, checksum → distance in mm. Returns level %."""
         import serial
@@ -281,7 +315,7 @@ class PiHal(Hal):
 
     def _hx711_raw(self, sd: SensorDef, samples: int = 5) -> float | None:
         """Claims DT/SCK only for the duration of one reading and releases them afterwards, so
-        greenhouse-sensors (hopper display) and greenhouse-control (dosing) can share the load cell.
+        greenhouse-sensors (bottle display) and greenhouse-control (dosing) can share the load cell.
         If the other process holds the lines, retry briefly and then report no reading."""
         import lgpio
         dt, sck = _gpio_num(sd.extra["dt_pin"]), _gpio_num(sd.extra["sck_pin"])
@@ -325,7 +359,7 @@ class PiHal(Hal):
     def _hx711_grams(self, sd: SensorDef, samples: int = 10) -> float | None:
         from ..calibration import apply
         raw = self._hx711_raw(sd, samples)
-        consts = getattr(self, "hopper_constants", None)
+        consts = getattr(self, "stock_constants", None)
         if raw is None or not consts:
             return None
         return apply("scale", raw, consts)
@@ -360,7 +394,8 @@ class PiHal(Hal):
         return round(pulses / ppl / max(dt, 1e-3) * 60.0, 3)
 
     def close(self) -> None:
-        for devs in self._outputs.values():
+        devs_all = list(self._outputs.values()) + ([[self._doser_dev]] if self._doser_dev is not None else [])
+        for devs in devs_all:
             for d in devs:
                 try:
                     d.off(); d.close()

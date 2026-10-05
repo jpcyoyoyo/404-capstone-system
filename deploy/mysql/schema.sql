@@ -142,6 +142,20 @@ CREATE TABLE sensor_readings_15m (
 	CONSTRAINT uq_15m_sensor_bucket UNIQUE (sensor_id, bucket_start)
 );
 
+CREATE TABLE threshold_presets (
+	id VARCHAR(40) NOT NULL, 
+	name VARCHAR(60) NOT NULL, 
+	note VARCHAR(255) NOT NULL, 
+	bands JSON NOT NULL, 
+	builtin BOOL NOT NULL, 
+	created_by VARCHAR(120) NOT NULL, 
+	created_at DATETIME NOT NULL, 
+	updated_by VARCHAR(120) NOT NULL, 
+	updated_at DATETIME NOT NULL, 
+	deleted_at DATETIME, 
+	PRIMARY KEY (id)
+);
+
 CREATE TABLE users (
 	id INTEGER NOT NULL AUTO_INCREMENT, 
 	email VARCHAR(190) NOT NULL, 

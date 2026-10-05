@@ -20,7 +20,11 @@ export const REASON_TEXT: Record<string, string> = {
   UNKNOWN_CIRCUIT: 'Unknown irrigation circuit.',
   REMOTE_READ_ONLY: 'Controls work only on the greenhouse network for now.',
   EXPIRED: 'The controller did not confirm in time; nothing was changed.',
-  HOPPER_LOW: 'Not enough fertilizer in the hopper for that dose.',
+  STOCK_LOW: 'Not enough stock solution in the bottle for that dose — mix a new batch.',
+  NO_FLOW: 'The dosing pump ran but the bottle did not get lighter — empty bottle, kinked tube or air in the line.',
+  LOAD_CELL_FAULT: 'The load cell under the stock bottle gave no reading — dose not started.',
+  TIMEOUT: 'The dose took longer than the time limit and was stopped.',
+  NO_DOSER: 'The dosing pump is not available on this controller.',
   MANUAL_ONLY: 'This device is moved by hand only.',
 };
 

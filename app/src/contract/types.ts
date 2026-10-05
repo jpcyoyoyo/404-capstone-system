@@ -5,7 +5,7 @@ export type Quality = 'VALID' | 'WARMING' | 'STALE' | 'INVALID' | 'UNCALIBRATED'
 
 export type SensorType =
   | 'temperature' | 'humidity' | 'soil_moisture' | 'light' | 'co2' | 'ph' | 'ec'
-  | 'water_temperature' | 'water_level' | 'water_flow' | 'hopper_weight' | 'float_switch';
+  | 'water_temperature' | 'water_level' | 'water_flow' | 'stock_weight' | 'float_switch';
 
 export interface Reading {
   sensor_id: string;
@@ -86,6 +86,29 @@ export interface Threshold {
   updated_by?: string | null;
 }
 
+/** One band inside a preset (no unit/version: those belong to the live thresholds). */
+export interface Band { min: number; max: number; deadband: number }
+/** stage id → parameter → band, for every stage and every controlled parameter. */
+export type PresetBands = Record<string, Record<string, Band>>;
+
+/** A plant preset: thresholds for all three stages, applied as one set. */
+export interface ThresholdPreset {
+  id: string;
+  name: string;
+  note: string;
+  builtin: boolean;
+  bands: PresetBands;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+}
+
+/** Which preset the thresholds came from; modified = a band was edited since it was applied. */
+export interface ActivePreset { id: string; name: string; modified: boolean }
+
+export interface PresetList { active: ActivePreset | null; presets: ThresholdPreset[] }
+
 export interface StageDef {
   id: string;
   name: string;
@@ -125,12 +148,17 @@ export interface GreenhouseMeta {
   capabilities: { energy?: boolean; push?: boolean; remote_commands?: boolean };
   network_mode?: string;
   active_stage?: string;
+  active_preset?: ActivePreset | null;
   stages: StageDef[];
   zones: { id: number; name: string; description: string }[];
   nodes: { id: string; board: string; zone: number }[];
   sensors: SensorDef[];
   actuators: ActuatorDef[];
-  control: { cycle_s: number; command_expiry_s: number; manual_override_max_s: number; photoperiod?: { start: string; end: string } | null };
+  control: {
+    cycle_s: number; command_expiry_s: number; manual_override_max_s: number; photoperiod?: { start: string; end: string } | null;
+    /** Liquid fertigation: doses are grams of fertilizer; the bottle on the load cell holds stock solution of this strength. */
+    fertigation?: { stock_g_per_kg: number; stock_reserve_g: number; dose_g: number; tolerance_g: number };
+  };
   server_time?: string;
 }
 
@@ -144,6 +172,7 @@ export interface LiveSnapshot {
   greenhouse_id: string;
   server_time: string;
   active_stage: string;
+  active_preset?: ActivePreset | null;
   controller: { online: boolean; ts: string | null; network_mode?: string; nodes?: Record<string, boolean> };
   readings: Record<string, Reading>;
   zones: Record<string, ZoneSummary>;

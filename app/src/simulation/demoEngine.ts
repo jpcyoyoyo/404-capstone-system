@@ -9,8 +9,8 @@
 import { DEFAULT_THRESHOLDS, REGISTRY_META } from '../contract/registry.generated';
 import type {
   Ack, ActuatorState, AlertItem, AlertSeverity, AuditEntry, CalibrationBody, CalibrationEntry, CommandRequest,
-  DoseItem, EventEntry, FertilizerReport, GreenhouseMeta, HistoryPoint, HistoryResult, Reading, Threshold,
-  UserItem, WaterDay,
+  ActivePreset, DoseItem, EventEntry, FertilizerReport, GreenhouseMeta, HistoryPoint, HistoryResult, PresetBands,
+  PresetList, Reading, Threshold, ThresholdPreset, UserItem, WaterDay,
 } from '../contract/types';
 import type { EnergyView, HistoryQuery } from '../providers/types';
 
@@ -32,6 +32,10 @@ const sunFactor = (ms: number) => Math.max(0, Math.sin(Math.PI * (hourOf(ms) - 6
 
 interface ActInternal extends ActuatorState { manualUntilMs: number | null }
 
+// Liquid fertigation: doses are grams of fertilizer; the bottle holds stock solution of this strength.
+const FERT = REGISTRY_META.control.fertigation ?? { stock_g_per_kg: 100, stock_reserve_g: 100, dose_g: 20, tolerance_g: 0.5 };
+const toSolution = (fertG: number) => fertG * 1000 / FERT.stock_g_per_kg;
+
 interface Dose { cmd_id: string; target: number; delivered: number; startedMs: number; issued_by: string; source: string }
 
 export interface DemoSnapshot {
@@ -46,11 +50,40 @@ export interface DemoSnapshot {
 const MAX_MANUAL_S = REGISTRY_META.control.manual_override_max_s;
 const RESERVOIR_MIN = 15;
 const DEMO_USER = 'demo@greenhouse.local';
+const BUILTIN_PRESET = 'petchay';
+
+/** stage → parameter → band, from a set of threshold rows. */
+export function bandsOf(thr: Record<string, Threshold[]>): PresetBands {
+  const out: PresetBands = {};
+  for (const [stage, rows] of Object.entries(thr)) {
+    out[stage] = {};
+    for (const t of rows) out[stage][t.parameter] = { min: t.min, max: t.max, deadband: t.deadband };
+  }
+  return out;
+}
+
+export function sameBands(a: PresetBands, b: PresetBands): boolean {
+  const stages = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const st of stages) {
+    const x = a[st] ?? {}, y = b[st] ?? {};
+    const ps = new Set([...Object.keys(x), ...Object.keys(y)]);
+    for (const p of ps) {
+      if (!x[p] || !y[p]) return false;
+      if (x[p].min !== y[p].min || x[p].max !== y[p].max || x[p].deadband !== y[p].deadband) return false;
+    }
+  }
+  return true;
+}
 
 export class DemoController {
   meta: GreenhouseMeta = REGISTRY_META;
   stage: string;
   thresholds: Record<string, Threshold[]> = JSON.parse(JSON.stringify(DEFAULT_THRESHOLDS));
+  presets: ThresholdPreset[] = [{
+    id: BUILTIN_PRESET, name: 'Petchay (default)', note: 'Brassica rapa subsp. chinensis bands from the registry', builtin: true,
+    bands: bandsOf(DEFAULT_THRESHOLDS), created_by: 'registry', created_at: null, updated_by: 'registry', updated_at: null,
+  }];
+  private activePresetId: string | null = BUILTIN_PRESET;
 
   private startMs = Date.now();
   private tickN = 0;
@@ -62,7 +95,7 @@ export class DemoController {
   private ph = 6.05;
   private levelPct = 82;
   private waterTemp = 26;
-  private hopperG = 900;
+  private stockG = 1500;   // grams of stock solution in the bottle
   private offsets: Record<string, number> = {};
   private acts: Record<string, ActInternal> = {};
   private irr = { on: false, circuit: null as string | null, byAuto: false, sinceMs: 0 };
@@ -106,7 +139,7 @@ export class DemoController {
     this.raise('NODE_OFFLINE', 'high', 'node_b', 'Node B stopped reporting for 2 minutes (demo history).', now - 26 * 36e5, now - 26 * 36e5 + 12e4, true);
     this.raise('SENSOR_UNCALIBRATED', 'low', 'ph_01', 'pH probe calibration is 12 days old — recalibrate every 14 days.', now - 5 * 36e5, null, false);
     for (let d = 5; d >= 1; d--) {
-      this.doses.push({ id: this.seq++, target_g: 20, delivered_g: round(20 + noise(0.8), 1), status: 'complete', reason: '', source: 'manual',
+      this.doses.push({ id: this.seq++, target_g: 20, delivered_g: round(20 + noise(0.3), 1), status: 'complete', reason: '', source: 'manual',
         issued_by: 'admin@greenhouse.local', started_at: iso(now - d * 864e5), finished_at: iso(now - d * 864e5 + 40e3), error_g: null });
     }
     this.doses.forEach(d => { d.error_g = d.delivered_g !== null ? round(d.delivered_g - d.target_g, 1) : null; });
@@ -147,12 +180,13 @@ export class DemoController {
       this.event('reservoir', 'REFILL', 'Reservoir refilled (demo)', 'manual', null);
     }
 
-    // Dosing: the auger delivers ~4 g per tick.
+    // Dosing: the pump moves ~3 g of fertilizer (30 g of solution) per tick — faster than a real
+    // 12 V peristaltic pump (~1.2 g of solution per second), so a demo dose finishes in seconds.
     if (this.dose) {
-      const step = Math.min(4 + noise(0.4), this.dose.target - this.dose.delivered + 0.3);
-      this.dose.delivered += Math.max(0, step);
-      this.hopperG = Math.max(0, this.hopperG - Math.max(0, step));
-      if (this.dose.delivered >= this.dose.target - 0.2) this.finishDose('complete');
+      const step = Math.max(0, Math.min(3 + noise(0.3), this.dose.target - this.dose.delivered + 0.05));
+      this.dose.delivered += step;
+      this.stockG = Math.max(0, this.stockG - toSolution(step));
+      if (this.dose.delivered >= this.dose.target - FERT.tolerance_g) this.finishDose('complete');
     }
 
     // Energy (only shown when the greenhouse has the energy capability)
@@ -186,7 +220,7 @@ export class DemoController {
         case 'ph': v = round(this.ph + noise(0.01), 3); break;
         case 'water_level': v = round(this.levelPct, 1); break;
         case 'water_temperature': v = round(this.waterTemp, 2); break;
-        case 'hopper_weight': v = round(this.hopperG + noise(0.3), 1); break;
+        case 'stock_weight': v = round(this.stockG + noise(0.3), 1); break;
         case 'float_switch': v = this.levelPct > 12 ? 1 : 0; break;
         default: v = null;
       }
@@ -215,7 +249,7 @@ export class DemoController {
         a.mode = 'AUTO'; a.manualUntilMs = null; a.manual_until = null;
         this.event(a.actuator_id, 'MODE_AUTO', 'Manual override expired', 'auto', null);
         if (a.actuator_id === 'irrigation') this.applyIrrigation(false, this.stageCircuit(), 'manual override expired', 'auto', now);
-        else if (a.actuator_id !== 'lights' && a.actuator_id !== 'auger') this.setAct(a.actuator_id, false, 'manual override expired', 'auto', now);
+        else if (a.actuator_id !== 'lights' && a.actuator_id !== 'doser') this.setAct(a.actuator_id, false, 'manual override expired', 'auto', now);
       }
     }
 
@@ -249,8 +283,8 @@ export class DemoController {
       this.setAct('lights', on, on ? `light ${Math.round(light ?? 0)} lux < ${lb?.min} lux` : inWindow ? 'enough daylight' : 'outside photoperiod', 'auto', now);
     }
 
-    // Auger follows the dose.
-    this.setAct('auger', !!this.dose, this.dose ? `dosing ${this.dose.target} g` : 'dose finished', this.dose?.source ?? 'auto', now);
+    // The dosing pump follows the dose.
+    this.setAct('doser', !!this.dose, this.dose ? `dosing ${this.dose.target} g (${Math.round(toSolution(this.dose.target))} g solution)` : 'dose finished', this.dose?.source ?? 'auto', now);
     for (const id of ['pump', 'valve_fog', 'valve_drip', 'valve_sprinkler', 'servo_main']) {
       if (this.acts[id]) this.acts[id].lockout = low ? 'LOW_WATER' : null;
     }
@@ -355,11 +389,11 @@ export class DemoController {
     }
 
     if (c.action === 'DOSE') {
-      if (def.id !== 'auger') return done('REJECTED', 'BAD_ACTION', 'Only the auger doses.');
+      if (def.id !== 'doser') return done('REJECTED', 'BAD_ACTION', 'Only the dosing pump doses.');
       const g = c.target_g ?? 0;
-      if (g <= 0) return done('REJECTED', 'BAD_TARGET', 'Enter a dose amount.');
+      if (g <= 0 || g > 200) return done('REJECTED', 'BAD_TARGET', 'Enter a dose between 0 and 200 g.');
       if (this.dose) return done('REJECTED', 'DOSING', 'A dose is already running.');
-      if (g > this.hopperG - 10) return done('REJECTED', 'HOPPER_LOW', 'Not enough fertilizer in the hopper.');
+      if (toSolution(g) > this.stockG - FERT.stock_reserve_g) return done('REJECTED', 'STOCK_LOW', 'Not enough stock solution in the bottle.');
       this.dose = { cmd_id: c.cmd_id, target: g, delivered: 0, startedMs: now, issued_by: by, source: 'manual' };
       this.control(now);
       return done('SIMULATED', null, `Dosing ${g} g (simulated).`);
@@ -367,7 +401,8 @@ export class DemoController {
 
     // ON / OFF
     const on = c.action === 'ON';
-    if (def.id === 'auger' && !on && this.dose) {
+    if (def.kind === 'dosing_pump' && on) return done('REJECTED', 'BAD_ACTION', 'The dosing pump only runs inside a weighed dose.');
+    if (def.id === 'doser' && !on && this.dose) {
       this.finishDose('aborted', 'STOPPED');
       this.control(now);
       return done('SIMULATED', null, 'Dose stopped (simulated).');
@@ -417,6 +452,112 @@ export class DemoController {
       this.audit.unshift({ id: this.seq++, actor: by, action: 'threshold_updated', target: `threshold:${stage}:${c.parameter}`, detail: { ...c }, occurred_at: iso(Date.now()) });
     }
     return this.thresholds[stage];
+  }
+
+  // ── plant presets (same rules as the controller's /threshold-presets) ──
+  activePreset(): ActivePreset | null {
+    const p = this.presets.find(x => x.id === this.activePresetId);
+    if (!p) return null;
+    return { id: p.id, name: p.name, modified: !sameBands(bandsOf(this.thresholds), p.bands) };
+  }
+
+  presetList(): PresetList {
+    const presets = [...this.presets].sort((a, b) => (a.builtin === b.builtin ? a.name.localeCompare(b.name) : a.builtin ? -1 : 1));
+    return { active: this.activePreset(), presets: JSON.parse(JSON.stringify(presets)) };
+  }
+
+  private checkBands(bands: PresetBands): PresetBands {
+    const clean: PresetBands = {};
+    for (const st of this.meta.stages) {
+      const sb = bands[st.id];
+      if (!sb) throw new Error(`${st.id}: missing`);
+      clean[st.id] = {};
+      for (const t of DEFAULT_THRESHOLDS[st.id] ?? []) {
+        const b = sb[t.parameter];
+        if (!b) throw new Error(`${st.id} ${t.parameter}: missing`);
+        if (!(b.min < b.max)) throw new Error(`${st.id} ${t.parameter}: min must be below max`);
+        if (b.deadband < 0) throw new Error(`${st.id} ${t.parameter}: deadband cannot be negative`);
+        clean[st.id][t.parameter] = { min: b.min, max: b.max, deadband: b.deadband };
+      }
+    }
+    return clean;
+  }
+
+  private nameTaken(name: string, exceptId?: string) {
+    return this.presets.some(p => p.id !== exceptId && p.name.trim().toLowerCase() === name.trim().toLowerCase());
+  }
+
+  private auditPreset(by: string, action: string, id: string, detail: Record<string, unknown>) {
+    this.audit.unshift({ id: this.seq++, actor: by, action, target: `preset:${id}`, detail, occurred_at: iso(Date.now()) });
+  }
+
+  createPreset(p: { name: string; note?: string; bands?: PresetBands }, by = DEMO_USER): ThresholdPreset {
+    const name = p.name.trim();
+    if (!name) throw new Error('name is required');
+    if (this.nameTaken(name)) throw new Error(`a preset named '${name}' already exists`);
+    const fromCurrent = !p.bands;
+    const bands = this.checkBands(p.bands ?? bandsOf(this.thresholds));
+    const now = iso(Date.now());
+    const preset: ThresholdPreset = {
+      id: `p-${Math.random().toString(16).slice(2, 10)}`, name, note: (p.note ?? '').trim(), builtin: false, bands,
+      created_by: by, created_at: now, updated_by: by, updated_at: now,
+    };
+    this.presets.push(preset);
+    this.auditPreset(by, 'preset_created', preset.id, { name, from_current: fromCurrent });
+    const prev = this.activePreset();
+    if (fromCurrent && (!prev || prev.modified)) this.activePresetId = preset.id;
+    return JSON.parse(JSON.stringify(preset));
+  }
+
+  editPreset(id: string, patch: { name?: string; note?: string; bands?: PresetBands }, by = DEMO_USER): ThresholdPreset {
+    const p = this.presets.find(x => x.id === id);
+    if (!p) throw new Error('unknown preset');
+    if (p.builtin) throw new Error('the built-in preset comes from the registry and cannot be changed; save a copy instead');
+    const fields: string[] = [];
+    if (patch.name !== undefined && patch.name.trim() !== p.name) {
+      if (!patch.name.trim()) throw new Error('name is required');
+      if (this.nameTaken(patch.name, id)) throw new Error(`a preset named '${patch.name.trim()}' already exists`);
+      p.name = patch.name.trim(); fields.push('name');
+    }
+    if (patch.note !== undefined && patch.note.trim() !== p.note) { p.note = patch.note.trim(); fields.push('note'); }
+    if (patch.bands) {
+      const b = this.checkBands(patch.bands);
+      if (!sameBands(b, p.bands)) { p.bands = b; fields.push('bands'); }
+    }
+    if (fields.length) {
+      p.updated_at = iso(Date.now()); p.updated_by = by;
+      this.auditPreset(by, 'preset_updated', id, { name: p.name, fields });
+    }
+    return JSON.parse(JSON.stringify(p));
+  }
+
+  deletePreset(id: string, by = DEMO_USER): void {
+    const p = this.presets.find(x => x.id === id);
+    if (!p) throw new Error('unknown preset');
+    if (p.builtin) throw new Error('the built-in preset cannot be deleted');
+    this.presets = this.presets.filter(x => x.id !== id);
+    if (this.activePresetId === id) this.activePresetId = null;
+    this.auditPreset(by, 'preset_deleted', id, { name: p.name });
+  }
+
+  applyPreset(id: string, by = DEMO_USER): { active: ActivePreset | null; changed: number } {
+    const p = this.presets.find(x => x.id === id);
+    if (!p) throw new Error('unknown preset');
+    const bands = this.checkBands(p.bands);
+    const previous = this.activePreset()?.name ?? null;
+    const changes: Record<string, unknown>[] = [];
+    const now = iso(Date.now());
+    for (const [stage, rows] of Object.entries(this.thresholds)) {
+      this.thresholds[stage] = rows.map(t => {
+        const b = bands[stage]?.[t.parameter];
+        if (!b || (b.min === t.min && b.max === t.max && b.deadband === t.deadband)) return t;
+        changes.push({ stage, parameter: t.parameter, old: { min: t.min, max: t.max, deadband: t.deadband }, new: b });
+        return { ...t, ...b, version: (t.version ?? 1) + 1, updated_at: now, updated_by: by };
+      });
+    }
+    this.activePresetId = id;
+    this.auditPreset(by, 'preset_applied', id, { name: p.name, previous, changed: changes.length, changes });
+    return { active: this.activePreset(), changed: changes.length };
   }
 
   ackAlert(id: number, by = DEMO_USER): AlertItem {
@@ -481,7 +622,7 @@ export class DemoController {
       case 'ph': return 6.05 + n * 0.15;
       case 'water_level': return 50 + 35 * (((t / 864e5) * 1.3) % 1 < 0.5 ? 1 - (((t / 864e5) * 1.3) % 1) : ((t / 864e5) * 1.3) % 1);
       case 'water_temperature': return 24 + 3 * sun + n * 0.3;
-      case 'hopper_weight': return Math.max(100, 1000 - ((day % 30) * 20));
+      case 'stock_weight': return Math.max(300, 1800 - ((day % 14) * 100));
       case 'float_switch': return 1;
       default: return null;
     }

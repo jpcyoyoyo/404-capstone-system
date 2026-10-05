@@ -6,7 +6,7 @@ import type { MetricKey, MetricStatus, MetricView } from './types';
 
 export const METRIC_KEYS: MetricKey[] = [
   'temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'ec',
-  'water_level', 'water_temperature', 'water_flow', 'hopper_weight',
+  'water_level', 'water_temperature', 'water_flow', 'stock_weight',
 ];
 
 export const METRIC_INFO: Record<MetricKey, { label: string; short: string; unit: string; digits: number }> = {
@@ -20,7 +20,7 @@ export const METRIC_INFO: Record<MetricKey, { label: string; short: string; unit
   water_level:       { label: 'Reservoir level',   short: 'Water',      unit: '%',     digits: 0 },
   water_temperature: { label: 'Water temperature', short: 'Water temp', unit: '°C',    digits: 1 },
   water_flow:        { label: 'Water flow',        short: 'Flow',       unit: 'L/min', digits: 1 },
-  hopper_weight:     { label: 'Fertilizer hopper', short: 'Hopper',     unit: 'g',     digits: 0 },
+  stock_weight:      { label: 'Stock solution',    short: 'Stock',      unit: 'g',     digits: 0 },
 };
 
 /** Route-friendly ids used by /tabs/live-monitor/metric/:id (older links used "moisture"). */
@@ -83,7 +83,8 @@ export function statusFor(key: MetricKey, v: number | null, band: MetricView['ba
   }
   switch (key) {
     case 'water_level': return v < 15 ? 'crit' : v < 30 ? 'warn' : 'ok';
-    case 'hopper_weight': return v < 50 ? 'crit' : v < 150 ? 'warn' : 'ok';
+    // grams of stock solution: one 20 g dose at 100 g/kg is 200 g, plus the 100 g reserve
+    case 'stock_weight': return v < 300 ? 'crit' : v < 500 ? 'warn' : 'ok';
     case 'water_temperature': return v > 32 || v < 15 ? 'warn' : 'ok';
     default: return 'ok';
   }

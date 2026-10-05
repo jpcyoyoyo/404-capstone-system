@@ -10,8 +10,9 @@ import { statusColor } from '../components/display';
 import { fmtDateTime } from '../components/format';
 import type { FertilizerReport } from '../contract/types';
 
-const PRESETS = [10, 20, 30, 50];
-const HOPPER_CAPACITY_G = 1000;
+const PRESETS = [5, 10, 20, 30];
+const BOTTLE_CAPACITY_G = 2000;   // 2 L stock bottle on the load cell
+const FERT_DEFAULTS = { stock_g_per_kg: 100, stock_reserve_g: 100, dose_g: 20, tolerance_g: 0.5 };
 
 const Fertigation: React.FC = () => {
   const gh = useGreenhouse();
@@ -21,12 +22,15 @@ const Fertigation: React.FC = () => {
   const [report, setReport] = useState<FertilizerReport | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const auger = gh.actuators.auger;
-  const augerDef = gh.meta.actuators.find(a => a.id === 'auger');
-  const hopper = gh.metrics.hopper_weight;
+  const doser = gh.actuators.doser;
+  const doserDef = gh.meta.actuators.find(a => a.id === 'doser');
+  const stock = gh.metrics.stock_weight;
+  const fert = gh.meta.control.fertigation ?? FERT_DEFAULTS;
   const level = gh.metrics.water_level;
   const ph = gh.metrics.ph;
-  const dosing = !!auger?.on;
+  const dosing = !!doser?.on;
+  // Grams of fertilizer still in the bottle above the reserve the pump cannot reach.
+  const available = stock.value !== null ? Math.max(0, (stock.value - fert.stock_reserve_g) * fert.stock_g_per_kg / 1000) : null;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -38,13 +42,15 @@ const Fertigation: React.FC = () => {
   useEffect(() => { if (wasDosing && !dosing) setTimeout(load, 800); setWasDosing(dosing); }, [dosing, wasDosing, load]);
 
   const g = Number(target);
-  const valid = Number.isFinite(g) && g > 0 && g <= 500;
+  const solution = Number.isFinite(g) ? Math.round(g * 1000 / fert.stock_g_per_kg) : 0;
+  const enough = available === null || g <= available;
+  const valid = Number.isFinite(g) && g > 0 && g <= 200 && enough;
 
   const dose = () => {
     alert({
-      header: `Dose ${g} g?`,
-      message: 'The auger turns until the load cell reads the target, then stops. Make sure the reservoir is ready to receive fertilizer.',
-      buttons: [{ text: 'Cancel', role: 'cancel' }, { text: 'Dose', handler: () => { send({ actuator_id: 'auger', action: 'DOSE', target_g: g }); } }],
+      header: `Dose ${g} g of fertilizer?`,
+      message: `The pump moves ${solution} g of stock solution (${fert.stock_g_per_kg} g/kg) into the reservoir, weighing the bottle between short pulses, then stops. Make sure the bottle was mixed at that strength and the tube outlet is in the reservoir.`,
+      buttons: [{ text: 'Cancel', role: 'cancel' }, { text: 'Dose', handler: () => { send({ actuator_id: 'doser', action: 'DOSE', target_g: g }); } }],
     });
   };
 
@@ -63,18 +69,21 @@ const Fertigation: React.FC = () => {
           <div className="sg-row-between" style={{ marginBottom: 6 }}>
             <div className="sg-row sg-gap-8">
               <IonIcon icon={scaleOutline} style={{ color: '#a855f7' }} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>Fertilizer hopper</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>Stock solution</span>
             </div>
             <span className={`sg-pill ${dosing ? 'sg-pill-info' : 'sg-pill-idle'}`}>{dosing ? 'DOSING' : 'IDLE'}</span>
           </div>
           <div style={{ fontSize: 34, fontWeight: 800, color: 'var(--sg-text)' }}>
-            {formatMetric('hopper_weight', hopper.value)}<span style={{ fontSize: 16, fontWeight: 400, color: 'var(--sg-muted)' }}> g</span>
+            {formatMetric('stock_weight', stock.value)}<span style={{ fontSize: 16, fontWeight: 400, color: 'var(--sg-muted)' }}> g</span>
+            {available !== null && (
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--sg-muted)', marginLeft: 8 }}>≈ {available.toFixed(0)} g fertilizer usable</span>
+            )}
           </div>
           <div className="sg-bar-track" style={{ marginTop: 6 }}>
-            <div className="sg-bar-fill" style={{ width: `${Math.min(100, ((hopper.value ?? 0) / HOPPER_CAPACITY_G) * 100)}%`, background: statusColor(hopper.status) }} />
+            <div className="sg-bar-fill" style={{ width: `${Math.min(100, ((stock.value ?? 0) / BOTTLE_CAPACITY_G) * 100)}%`, background: statusColor(stock.status) }} />
           </div>
           <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 6 }}>
-            {hopper.note ?? (dosing ? auger?.reason : `Load cell (HX711) · about ${Math.round(((hopper.value ?? 0) / HOPPER_CAPACITY_G) * 100)}% of 1 kg`)}
+            {stock.note ?? (dosing ? doser?.reason : `Bottle on the load cell (HX711) · ${fert.stock_g_per_kg} g fertilizer per kg of solution · peristaltic pump`)}
           </div>
         </div>
 
@@ -96,7 +105,7 @@ const Fertigation: React.FC = () => {
         <div className="sg-card">
           <div className="sg-section-title">Manual dose</div>
           <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginBottom: 10 }}>
-            Automatic fertigation is off for the study period; doses are started here and weighed by the load cell.
+            Automatic fertigation is off for the study period. Enter grams of fertilizer; the pump delivers the matching weight of stock solution, weighed by the load cell.
           </div>
           <div className="sg-row sg-gap-8" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
             {PRESETS.map(p => (
@@ -104,18 +113,21 @@ const Fertigation: React.FC = () => {
             ))}
           </div>
           <div className="sg-row sg-gap-8">
-            <input type="number" inputMode="decimal" min={1} max={500} value={target} onChange={e => setTarget(e.target.value)} style={input} />
-            <span style={{ color: 'var(--sg-muted)' }}>g</span>
+            <input type="number" inputMode="decimal" min={1} max={200} value={target} onChange={e => setTarget(e.target.value)} style={input} />
+            <span style={{ color: 'var(--sg-muted)' }}>g → {solution} g solution</span>
             <div style={{ flex: 1 }} />
-            {busy === 'auger' ? <IonSpinner name="dots" /> : (
-              <IonButton disabled={!valid || dosing || !!blocked || !augerDef?.installed || busy !== null} onClick={dose}>
+            {busy === 'doser' ? <IonSpinner name="dots" /> : (
+              <IonButton disabled={!valid || dosing || !!blocked || !doserDef?.installed || busy !== null} onClick={dose}>
                 {dosing ? 'Dosing…' : 'Dose'}
               </IonButton>
             )}
           </div>
           {dosing && (
             <IonButton size="small" fill="outline" color="danger" style={{ marginTop: 10 }} disabled={!!blocked}
-              onClick={() => send({ actuator_id: 'auger', action: 'OFF', duration_s: 60 })}>Stop dose</IonButton>
+              onClick={() => send({ actuator_id: 'doser', action: 'OFF', duration_s: 60 })}>Stop dose</IonButton>
+          )}
+          {!enough && !dosing && (
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 8 }}>Not enough stock for {g} g — mix a new batch and refill the bottle.</div>
           )}
           {blocked && <div style={{ fontSize: 11, color: 'var(--sg-dim)', marginTop: 8 }}>{blocked}</div>}
         </div>
@@ -148,7 +160,7 @@ const Fertigation: React.FC = () => {
                   <div style={{ fontSize: 10, color: 'var(--sg-dim)' }}>{fmtDateTime(d.started_at)} · {d.issued_by}{d.reason ? ` · ${d.reason}` : ''}</div>
                 </div>
               </div>
-              <span style={{ fontSize: 12, color: d.error_g !== null && Math.abs(d.error_g) > 2 ? '#f59e0b' : 'var(--sg-muted)' }}>
+              <span style={{ fontSize: 12, color: d.error_g !== null && Math.abs(d.error_g) > 1 ? '#f59e0b' : 'var(--sg-muted)' }}>
                 {d.error_g !== null ? `${d.error_g > 0 ? '+' : ''}${d.error_g} g` : ''}
               </span>
             </div>

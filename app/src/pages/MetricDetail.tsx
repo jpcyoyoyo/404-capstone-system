@@ -12,7 +12,7 @@ import type { EventEntry, HistoryResult } from '../contract/types';
 import { statusColor, statusWord } from '../components/display';
 import { fmtDateTime } from '../components/format';
 
-const CHOICES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'water_temperature', 'hopper_weight'];
+const CHOICES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'water_temperature', 'stock_weight'];
 const RANGES = [
   { id: '6h', ms: 6 * 36e5, res: '15m' as const },
   { id: '24h', ms: 24 * 36e5, res: '15m' as const },
@@ -20,7 +20,7 @@ const RANGES = [
   { id: '30d', ms: 30 * 864e5, res: '1d' as const },
 ];
 const ZONE_COLORS: Record<string, string> = { '0': '#14b8a6', '1': '#22c55e', '2': '#3b82f6' };
-const RELATED_ACT: Partial<Record<MetricKey, string>> = { soil_moisture: 'irrigation', light: 'lights', humidity: 'irrigation', hopper_weight: 'auger', water_level: 'pump' };
+const RELATED_ACT: Partial<Record<MetricKey, string>> = { soil_moisture: 'irrigation', light: 'lights', humidity: 'irrigation', stock_weight: 'doser', water_level: 'pump' };
 
 const MetricDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();

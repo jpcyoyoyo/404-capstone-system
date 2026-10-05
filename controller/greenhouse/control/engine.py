@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from .. import fertigation as F
 from ..registry import Registry
 from ..timeutil import local_time_of
 from . import guard as G
@@ -49,7 +50,7 @@ class CommandResult:
     status: str                     # ACCEPTED | REJECTED | EXPIRED
     reason: str | None = None
     message: str | None = None
-    dose_g: float | None = None     # set when an auger dose should start
+    dose_g: float | None = None     # grams of fertilizer, set when a dose should start
 
 
 @dataclass
@@ -154,8 +155,30 @@ class ControlEngine:
             if "pump" not in out and lvl is not None and lvl.value is not None and lvl.value < min_pct:
                 out["pump"] = "LOW_WATER"
         if self.dosing:
-            out["auger"] = "DOSING"
+            out["doser"] = "DOSING"
         return out
+
+    # ── stock bottle ─────────────────────────────────────────────────────
+    def stock_solution_g(self, eff: dict[str, Reading]) -> float | None:
+        """Grams of stock solution in the bottle, or None when the load cell has no valid reading."""
+        for sd in self.reg.sensors_of("stock_weight"):
+            r = eff.get(sd.id)
+            if r is not None and r.valid and r.value is not None:
+                return float(r.value)
+        return None
+
+    def _stock_check(self, eff: dict[str, Reading], grams: float) -> tuple[bool, str | None, str | None]:
+        """Refuse a dose the bottle cannot supply. With no valid bottle reading the dose is left to
+        the HAL, which aborts it with LOAD_CELL_FAULT before the pump runs."""
+        fert = self.cfg.get("fertigation", {})
+        stock = self.stock_solution_g(eff)
+        if stock is None:
+            return True, None, None
+        avail = F.available_fertilizer_g(stock, fert)
+        if grams > avail:
+            return False, "STOCK_LOW", (f"the bottle holds about {avail:.0f} g of fertilizer above its reserve "
+                                        f"({stock:.0f} g of solution); refill it before dosing {grams:g} g")
+        return True, None, None
 
     # ── manual overrides ─────────────────────────────────────────────────
     def _expire_manual(self, now: datetime, res: TickResult) -> None:
@@ -223,15 +246,18 @@ class ControlEngine:
 
         # automatic fertigation (off by default until the EC sensor is installed)
         fert = self.cfg.get("fertigation", {})
-        if fert.get("auto_enabled") and not self.dosing and "auger" not in lock:
+        if fert.get("auto_enabled") and not self.dosing and "doser" not in lock:
             fr = fertigation_request(params.get("ec"), self.bands)
             min_gap = timedelta(hours=float(fert.get("min_interval_h", 6)))
             if fr and (self.last_dose_at is None or now - self.last_dose_at >= min_gap):
                 ok, why = fertigation_gate(params.get("soil_moisture"), params.get("ec"), self.bands)
+                dose_g = float(fert.get("dose_g", 20))
                 if ok:
-                    res.dose_request_g = float(fert.get("dose_g", 20))
+                    ok, _, why = self._stock_check(eff, dose_g)
+                if ok:
+                    res.dose_request_g = dose_g
                 else:
-                    s = Suppressed("auger", True, "ec", fr.rule, "fertigation_gate", 4, why or "gated")
+                    s = Suppressed("doser", True, "ec", fr.rule, "fertigation_gate", 4, why or "gated")
                     res.suppressed.append(s)
         return res
 
@@ -256,6 +282,13 @@ class ControlEngine:
             elif r.quality == "UNCALIBRATED":
                 out.append(AlertSignal(f"sensor:{sd.id}:uncalibrated", "low", sd.id, "SENSOR_UNCALIBRATED",
                                        f"{sd.id}: needs calibration before it is used for control"))
+        if self.reg.has_actuator("doser") and self.reg.actuator("doser").installed:
+            stock = self.stock_solution_g(eff)
+            fert = self.cfg.get("fertigation", {})
+            if stock is not None and F.available_fertilizer_g(stock, fert) < float(fert.get("dose_g", 20)):
+                out.append(AlertSignal("doser:stock_low", "medium", "doser", "STOCK_LOW",
+                                       f"Stock bottle low ({stock:.0f} g of solution): less than one "
+                                       f"{float(fert.get('dose_g', 20)):g} g dose left — mix a new batch"))
         if not grace:   # just started: readings are still arriving, absence is not a fault yet
             return out
         for t, ps in params.items():
@@ -442,26 +475,31 @@ class ControlEngine:
             return CommandResult("ACCEPTED", None, f"{adef.name} returned to automatic control")
 
         if cmd.action == "DOSE":
-            if aid != "auger":
-                return CommandResult("REJECTED", "BAD_ACTION", "DOSE applies to the auger only")
+            if aid != "doser":
+                return CommandResult("REJECTED", "BAD_ACTION", "DOSE applies to the dosing pump only")
             g = cmd.target_g or 0
-            if not 0 < g <= 500:
-                return CommandResult("REJECTED", "BAD_TARGET", "target must be between 0 and 500 g")
+            if not 0 < g <= 200:
+                return CommandResult("REJECTED", "BAD_TARGET", "target must be between 0 and 200 g of fertilizer")
             if self.dosing:
                 return CommandResult("REJECTED", "DOSING", "a dose is already in progress")
             ok, why = fertigation_gate(params.get("soil_moisture"), params.get("ec"), self.bands)
             if not ok:
                 reason, _, msg = (why or "FERTIGATION_GATED").partition(": ")
                 return CommandResult("REJECTED", reason, msg or why)
+            ok, reason, msg = self._stock_check(eff, g)
+            if not ok:
+                return CommandResult("REJECTED", reason, msg)
             self.dosing = True
             self.dose_stop_requested = False
             return CommandResult("ACCEPTED", None, f"dosing {g:g} g", dose_g=g)
 
         if cmd.action not in ("ON", "OFF"):
             return CommandResult("REJECTED", "BAD_ACTION", f"unknown action {cmd.action}")
-        if aid == "auger" and cmd.action == "OFF" and self.dosing:
+        if aid == "doser" and cmd.action == "OFF" and self.dosing:
             self.dose_stop_requested = True
             return CommandResult("ACCEPTED", None, "stopping the dose")
+        if adef.kind == "dosing_pump" and cmd.action == "ON":
+            return CommandResult("REJECTED", "BAD_ACTION", "the dosing pump only runs inside a weighed dose — use DOSE")
         on = cmd.action == "ON"
         cap = self._manual_cap(adef.water)
         duration = min(float(cmd.duration_s or cap), cap)

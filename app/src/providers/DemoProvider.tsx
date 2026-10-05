@@ -46,6 +46,8 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const thresholds = useMemo(() => thresholdMap(engine.thresholds[snap.stage] ?? []), [engine, snap.stage, thrVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const activePreset = useMemo(() => engine.activePreset(), [engine, thrVersion]);
   const metrics = useMemo(() => buildMetrics(engine.meta, snap.readings, zones, thresholds, hist), [engine, snap.readings, zones, thresholds, hist]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const openAlerts = useMemo(() => engine.alertsList('open'), [engine, snap.alertsVersion]);
@@ -56,6 +58,11 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     history: q => later(() => engine.history(q), 250),
     thresholds: stage => later(() => engine.thresholds[stage] ?? []),
     putThresholds: (stage, list) => later(() => { const r = engine.putThresholds(stage, list, whoRef.current); setThrVersion(v => v + 1); return r; }),
+    presets: () => later(() => engine.presetList()),
+    createPreset: p => later(() => { const r = engine.createPreset(p, whoRef.current); setThrVersion(v => v + 1); return r; }),
+    editPreset: (id, p) => later(() => { const r = engine.editPreset(id, p, whoRef.current); setThrVersion(v => v + 1); return r; }),
+    deletePreset: id => later(() => { engine.deletePreset(id, whoRef.current); setThrVersion(v => v + 1); }),
+    applyPreset: id => later(() => { const r = engine.applyPreset(id, whoRef.current); setThrVersion(v => v + 1); return r; }, 300),
     alerts: (status, limit) => later(() => engine.alertsList(status, limit)),
     ackAlert: id => later(() => { const r = engine.ackAlert(id, whoRef.current); setSnap(engine.snapshot()); return r; }),
     audit: (limit = 200) => later(() => engine.audit.slice(0, limit)),
@@ -84,9 +91,9 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const value: GreenhouseData = {
     mode: 'demo', link: 'demo', ready: true, error: null, streaming: true,
     lastUpdate: new Date(snap.now).toISOString(), controllerOnline: true, nodes: { node_a: true, node_b: true },
-    meta: { ...engine.meta, active_stage: snap.stage },
+    meta: { ...engine.meta, active_stage: snap.stage, active_preset: activePreset },
     readings: snap.readings, zones, metrics, actuators: snap.actuators,
-    activeStageId: snap.stage, thresholds, openAlerts, unackedCount,
+    activeStageId: snap.stage, thresholds, activePreset, openAlerts, unackedCount,
     energy: snap.energy,
     canCommand: true,
     sendCommand, setActiveStage,

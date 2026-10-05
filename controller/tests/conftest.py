@@ -39,7 +39,7 @@ def reg(raw_registry):
 NORMAL = {
     "soil_moisture": 67.0, "temperature": 25.0, "humidity": 70.0, "light": 20000.0,
     "co2": 600.0, "ph": 6.0, "ec": 1.5, "water_temperature": 25.0, "water_level": 80.0,
-    "water_flow": 0.0, "hopper_weight": 800.0, "float_switch": 1.0,
+    "water_flow": 0.0, "stock_weight": 800.0, "float_switch": 1.0,
 }
 
 

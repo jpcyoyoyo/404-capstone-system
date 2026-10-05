@@ -33,7 +33,7 @@ Adviser: Felanie V. Docena, MSIT.
 | Part | State |
 | --- | --- |
 | Control algorithm (medians per zone, quality flags, interlocks, arbitration, hysteresis, min on/off, max run, daily cap, manual override, ESTOP) | Done, 24 control tests incl. the 10 Gate-2 fault injections |
-| REST API, auth (admin/viewer, refresh tokens), commands with ack and expiry, thresholds, alerts, history, reports, calibration, users | Done, tested in-process and against a real Mosquitto |
+| REST API, auth (admin/viewer, refresh tokens), commands with ack and expiry, thresholds, plant presets (all three stages at once), alerts, history, reports, calibration, users | Done, tested in-process and against a real Mosquitto |
 | MQTT (1883 services/nodes, 9001 WebSocket for the app, read-only app account) | Done |
 | MySQL 8 schema, retention roll-up, nightly backup, cloud sync | Done (`deploy/mysql/schema.sql` is the reference copy) |
 | App: live mode (REST + MQTT), demo mode (SIMULATED acks), offline last-known values, all screens wired | Done |
