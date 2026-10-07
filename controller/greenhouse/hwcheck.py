@@ -6,6 +6,7 @@ wiring AND the registry agree. Used by the Component Assembly Procedures (Sectio
   greenhouse hw list                         what is wired where, per the registry
   greenhouse hw read ph_01 --count 10        raw and calibrated readings from Pi-attached sensors
   greenhouse hw distance level_01            raw ultrasonic distance (blind zone, tank depth)
+  greenhouse hw flow --seconds 120 [--litres 10]  count flow pulses (bucket test; suggests pulses_per_litre)
   greenhouse hw on lights --seconds 5        drive one output, then switch it off again
   greenhouse hw relay IN5 --seconds 2        click one relay input (or `all`), even unassigned or not-installed ones
   greenhouse hw servo servo_main --pulse 1500
@@ -118,6 +119,37 @@ def cmd_distance(reg: Registry, hal, sid: str, count: int, interval: float) -> N
         print("no valid frame (check wiring, baud, or blind zone)" if d is None else f"{d:.1f} cm")
         if n < count - 1:
             time.sleep(interval)
+
+
+def cmd_flow(reg: Registry, hal, sid: str, seconds: float, litres: float | None) -> None:
+    sd = _sensor(reg, sid)
+    if sd.type != "water_flow":
+        sys.exit(f"{sid} is not a flow sensor")
+    ppl = float(sd.extra.get("pulses_per_litre", 450))
+    start = hal.flow_pulse_total(sd)
+    t0 = last_t = time.monotonic()
+    last = start
+    print(f"counting {sid} pulses for {seconds:g} s at {ppl:g} pulses per litre (Ctrl+C to stop early)")
+    print(f"{'time':>6} {'pulses':>8} {'litres':>8} {'L/min':>7}")
+    try:
+        while time.monotonic() - t0 < seconds:
+            time.sleep(1.0)
+            now, total = time.monotonic(), hal.flow_pulse_total(sd)
+            lpm = (total - last) / ppl / max(now - last_t, 1e-3) * 60.0
+            last, last_t = total, now
+            print(f"{now - t0:6.0f} {total - start:8d} {(total - start) / ppl:8.2f} {lpm:7.2f}", flush=True)
+    except KeyboardInterrupt:
+        pass
+    pulses = hal.flow_pulse_total(sd) - start
+    print(f"total: {pulses} pulses = {pulses / ppl:.2f} L at {ppl:g} pulses per litre")
+    if litres:
+        if pulses == 0:
+            print("no pulses counted: check the 5 V supply, the divider and GPIO26")
+        else:
+            measured = pulses / litres
+            err = (pulses / ppl - litres) / litres * 100.0
+            print(f"bucket: {litres:g} L → {measured:.0f} pulses per litre; reading error {err:+.1f} %"
+                  + ("" if abs(err) <= 10 else f" — set pulses_per_litre: {measured:.0f} in the registry"))
 
 
 def cmd_on(reg: Registry, hal, aid: str, seconds: float, yes: bool) -> None:
@@ -261,6 +293,9 @@ def add_parser(sub) -> None:
     d = hs.add_parser("distance"); d.add_argument("id", nargs="?", default="level_01")
     d.add_argument("--count", type=int, default=5); d.add_argument("--interval", type=float, default=1.0)
     d.add_argument("--force", action="store_true")
+    fl = hs.add_parser("flow"); fl.add_argument("id", nargs="?", default="flow_01")
+    fl.add_argument("--seconds", type=float, default=120.0); fl.add_argument("--litres", type=float, default=None)
+    fl.add_argument("--force", action="store_true")
     o = hs.add_parser("on"); o.add_argument("id"); o.add_argument("--seconds", type=float, default=3.0)
     o.add_argument("--yes", action="store_true"); o.add_argument("--force", action="store_true")
     rl = hs.add_parser("relay"); rl.add_argument("input", help="IN1…IN8 or all")
@@ -292,6 +327,8 @@ def run(args, settings, reg: Registry, db) -> None:
             cmd_read(reg, hal, db, args.ids, args.count, args.interval)
         elif args.hw == "distance":
             cmd_distance(reg, hal, args.id, args.count, args.interval)
+        elif args.hw == "flow":
+            cmd_flow(reg, hal, args.id, args.seconds, args.litres)
         elif args.hw == "on":
             cmd_on(reg, hal, args.id, args.seconds, args.yes)
         elif args.hw == "servo":

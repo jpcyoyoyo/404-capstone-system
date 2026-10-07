@@ -93,6 +93,7 @@ class PiHal(Hal):
                 self._doser = a
         self._sensors: dict[str, object] = {}
         self._flow_pulses = 0
+        self._flow_total = 0       # never reset: `hw flow` counts a bucket fill from it
         self._flow_t = time.monotonic()
 
     # ── outputs ──────────────────────────────────────────────────────────
@@ -376,7 +377,7 @@ class PiHal(Hal):
         low = (not closed) if sd.extra.get("low_when", "open") == "open" else closed
         return 0.0 if low else 1.0
 
-    def _flow(self, sd: SensorDef) -> float:
+    def _flow_dev(self, sd: SensorDef):
         from gpiozero import DigitalInputDevice
         with self._lock:
             dev = self._sensors.get(sd.id)
@@ -385,13 +386,25 @@ class PiHal(Hal):
 
                 def _pulse():
                     self._flow_pulses += 1
+                    self._flow_total += 1
                 dev.when_activated = _pulse
                 self._sensors[sd.id] = dev
+            return dev
+
+    def _flow(self, sd: SensorDef) -> float:
+        self._flow_dev(sd)
+        with self._lock:
             now = time.monotonic()
             pulses, dt = self._flow_pulses, now - self._flow_t
             self._flow_pulses, self._flow_t = 0, now
         ppl = float(sd.extra.get("pulses_per_litre", 450))
         return round(pulses / ppl / max(dt, 1e-3) * 60.0, 3)
+
+    def flow_pulse_total(self, sd: SensorDef) -> int:
+        """Pulses counted since the sensor was first opened in this process (for `hw flow`)."""
+        self._flow_dev(sd)
+        with self._lock:
+            return self._flow_total
 
     def close(self) -> None:
         devs_all = list(self._outputs.values()) + ([[self._doser_dev]] if self._doser_dev is not None else [])

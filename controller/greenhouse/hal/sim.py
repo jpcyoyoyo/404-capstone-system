@@ -225,6 +225,15 @@ class SimHal(Hal):
             if not self.env.doser_blocked:
                 self.env.stock_g = max(0.0, self.env.stock_g - seconds * DOSER_G_PER_S)
 
+    def flow_pulse_total(self, sd: SensorDef) -> int:
+        """Simulated pulse count: integrates the simulated flow rate since the first call."""
+        now = time.monotonic()
+        last = getattr(self, "_flow_last", None)
+        self._flow_last = now
+        if last is not None:
+            self._flow_acc = getattr(self, "_flow_acc", 0.0) + self.env.flow_lpm / 60.0 * (now - last) * float(sd.extra.get("pulses_per_litre", 450))
+        return int(getattr(self, "_flow_acc", 0.0))
+
     def ultrasonic_distance_cm(self, sd: SensorDef) -> float | None:
         depth, blind = float(sd.extra.get("tank_depth_cm", 60)), float(sd.extra.get("blind_zone_cm", 25))
         return round(depth - self.env.level_pct / 100.0 * (depth - blind), 1)

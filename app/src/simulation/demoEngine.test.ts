@@ -95,7 +95,7 @@ describe('metrics', () => {
     expect(z.value).toBe(27.5);
     const m = buildMetrics(d.meta, r, { soil_moisture: z }, thresholdMap(d.thresholds.growth), {});
     expect(m.soil_moisture.status).toBe('crit');
-    expect(m.water_flow.installed).toBe(false);   // flow_01 is installed: false in the registry (EC is now fitted, A6)
+    expect(m.water_flow.installed).toBe(true);    // flow_01 fitted (A9, 6 Oct)
   });
 
   test('status bands', () => {

@@ -157,7 +157,7 @@ sensors:
   # CONFLICT 6: on the Pi 5, GPIO4/5 is UART2 (uart2-pi5) → /dev/ttyAMA2. Verify on the Pi.
   - { id: level_01,  type: water_level,       zone: 0, host: pi, device: ultrasonic_uart, port: /dev/ttyAMA2, tank_depth_cm: 60, blind_zone_cm: 25, interval_s: 60 }
   # CONFLICT 3: no pin assigned in any document. GPIO26 proposed.
-  - { id: flow_01,   type: water_flow,        zone: 0, host: pi, device: hall_flow, pin: GPIO26, pulses_per_litre: 450, installed: false }
+  - { id: flow_01,   type: water_flow,        zone: 0, host: pi, device: hall_flow, pin: GPIO26, pulses_per_litre: 450 }
   # Stock-solution bottle on the load cell (tare = empty bottle). Replaces the fertilizer hopper.
   - { id: stock_01,  type: stock_weight,      zone: 0, host: pi, device: hx711, dt_pin: GPIO6, sck_pin: GPIO13, calibration: scale }
   # CONFLICT 2: Case B — logic input, software cut-off. Open circuit = LOW water.
