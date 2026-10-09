@@ -20,6 +20,9 @@ const Controls: React.FC = () => {
   const history = useHistory();
   const { send, busy, blocked } = useCommand();
   const [sheet] = useIonActionSheet();
+  // A second sheet controller for durations: one hook can show only one sheet at a time, so the
+  // duration sheet opened from the circuit sheet (Water now) would otherwise never appear.
+  const [durationSheet] = useIonActionSheet();
   const [alert] = useIonAlert();
   const [estopChecked, setEstopChecked] = useState(false);
   const [showParts, setShowParts] = useState(false);
@@ -33,7 +36,7 @@ const Controls: React.FC = () => {
   const durations = DURATIONS.filter(d => d <= maxMin);
 
   const pickDuration = (title: string, then: (s: number) => void) => {
-    sheet({
+    durationSheet({
       header: title,
       buttons: [
         ...durations.map(d => ({ text: `${d} min`, handler: () => then(d * 60) })),
