@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-time setup of the Raspberry Pi 5 controller (Raspberry Pi OS Bookworm or Trixie, 64-bit, with desktop).
 #
-#   1. On a PC: cd app && npm ci && npm run build        (the Pi serves app/dist for the kiosk and browsers)
+#   1. App build: done here when Node.js is installed on the Pi (rebuilt whenever app/ changed);
+#      otherwise on a PC: cd app && npm ci && npm run build, and copy app/dist with the folder
 #   2. Copy the whole 404-capstone-system folder to the Pi (USB stick or scp)
 #   3. On the Pi:  sudo bash ./deploy/pi-setup.sh        (add --sim to run with simulated sensors on the bench)
 #
@@ -18,7 +19,26 @@ DESKTOP_USER=${SUDO_USER:-pi}
 say() { printf '\n\033[1;32m== %s\033[0m\n' "$*"; }
 rand() { openssl rand -hex "${1:-16}"; }
 
-[[ -f "$REPO/app/dist/index.html" ]] || { echo "app/dist is missing — build the app on a PC first (see top of this file)"; exit 1; }
+# The app (kiosk and browser pages) is served from app/dist, which git does not carry: rebuild it
+# whenever its sources are newer than the last build (after every git pull that changed the app).
+build_app() {
+  local app="$REPO/app" owner
+  owner=$(stat -c %U "$app")
+  if ! command -v npm >/dev/null; then
+    echo "npm not found: install Node.js on the Pi, or build on a PC and copy app/dist (see top of this file)"; return 1
+  fi
+  say "Building the app (kiosk and browser pages) as $owner"
+  if [[ ! -d "$app/node_modules" || "$app/package-lock.json" -nt "$app/node_modules/.package-lock.json" ]]; then
+    sudo -u "$owner" -H bash -c "cd '$app' && npm ci" || return 1
+  fi
+  sudo -u "$owner" -H bash -c "cd '$app' && npm run build" || return 1
+}
+if [[ ! -f "$REPO/app/dist/index.html" ]] || [[ -n "$(find "$REPO/app/src" "$REPO/app/public" "$REPO/app/index.html" \
+     "$REPO/app/package.json" "$REPO/app/package-lock.json" "$REPO/contract" -newer "$REPO/app/dist/index.html" -print -quit 2>/dev/null)" ]]; then
+  build_app || { echo "app build failed — the kiosk would show the old version; fix the error above and re-run"; exit 1; }
+else
+  echo "app/dist is up to date"
+fi
 
 say "Packages"
 apt-get update
@@ -97,6 +117,7 @@ else
   echo "keeping existing $ETC/greenhouse.env"
 fi
 [[ -f "$ETC/network.conf" ]] || cp "$REPO/deploy/network/network.conf.example" "$ETC/network.conf"
+chmod 600 "$ETC/network.conf"   # holds Wi-Fi and hotspot passwords
 
 say "Mosquitto (1883 for nodes and services, 9001 WebSocket for the app)"
 cp "$REPO/deploy/mosquitto/greenhouse.conf" /etc/mosquitto/conf.d/greenhouse.conf
@@ -172,6 +193,8 @@ if [[ -n "$DESK_HOME" ]]; then
   install -o "$DESKTOP_USER" -g "$DESKTOP_USER" -m 644 "$REPO/deploy/kiosk/greenhouse-kiosk.desktop" "$DESK_HOME/.config/autostart/"
   echo "kiosk starts on the next desktop login of $DESKTOP_USER (enable auto-login in raspi-config)"
 fi
+# A running kiosk keeps the old page in memory: close its browser so kiosk.sh reopens the new one
+if pkill -f -- "--kiosk .*localhost:8000/kiosk" 2>/dev/null; then echo "kiosk browser restarted (back in about 5 s)"; fi
 
 say "Nightly backup"
 echo "15 2 * * * root $DEST/deploy/mysql/backup.sh >> /var/log/greenhouse-backup.log 2>&1" > /etc/cron.d/greenhouse-backup

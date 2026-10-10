@@ -1146,7 +1146,8 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
             f = (root / path).resolve()
             if path and f.is_file() and root in f.parents:
                 return FileResponse(f)
-            return FileResponse(root / "index.html")
+            # never cached, so a reload always picks up a new build (assets have hashed names)
+            return FileResponse(root / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):  # pragma: no cover
