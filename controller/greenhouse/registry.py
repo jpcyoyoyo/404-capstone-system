@@ -32,6 +32,7 @@ class Stage:
     sequence: int
     irrigation_mode: str
     description: str = ""
+    days: int = 14          # default length of the stage, for automatic stage change
 
 
 @dataclass(frozen=True)

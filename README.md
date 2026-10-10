@@ -76,7 +76,7 @@ e.g. `{"kind": "drain"}` for low water or `{"kind": "node_offline", "node_id": "
 ## Tests
 
 ```bash
-cd controller && pytest -q          # 44 tests: control loop, Gate-2 faults, API, sync, contract
+cd controller && pytest -q          # 88 tests: control loop, Gate-2 faults, API, sync, stages, cloud, network, contract
 cd app && npm run lint && npx tsc --noEmit && npm run test.unit && npm run build
 python contract/tools/gen_ts.py     # must leave app/src/contract/registry.generated.ts unchanged
 ```
@@ -105,8 +105,8 @@ The app tries every saved address in order, so all three can be saved at once
 (App Settings → Connection).
 
 Services: `greenhouse-sensors`, `greenhouse-control`, `greenhouse-api`, `greenhouse-sync`
-(only with a cloud URL), `greenhouse-db` (MySQL), `greenhouse-net`, plus `greenhouse-simnodes`
-for bench tests. Logs: `journalctl -u greenhouse-control -f`.
+(always on; the cloud server is required), `greenhouse-db` (MySQL), `greenhouse-net`, plus
+`greenhouse-simnodes` for bench tests. Logs: `journalctl -u greenhouse-control -f`.
 
 Node MQTT passwords are in `/etc/greenhouse/node-credentials.txt`.
 
@@ -118,12 +118,37 @@ sign-in: the API only issues the display token to requests from the Pi itself, o
 `GH_KIOSK_TOKEN` (`/kiosk?token=…`), so a laptop or TV on the network can show it too.
 `/kiosk?demo=1` shows the simulation.
 
-## Cloud replica (remote viewing)
+With a USB keyboard and mouse plugged into the Pi, press **N** (or click the network chip at the
+top right) to open the Network panel: connection status, Wi-Fi networks in range, and the cloud
+server. Viewing is open; changing the Wi-Fi or the cloud server needs an administrator sign-in on
+the panel. Changes go through `/usr/local/sbin/greenhouse-netctl`, the only command the API account
+may run as root (`/etc/sudoers.d/greenhouse-netctl`); Wi-Fi passwords are written to
+NetworkManager keyfiles (0600) and never logged.
+
+## Cloud server (required)
 
 `deploy/cloud/`: MySQL, the API with `GH_ROLE=cloud`, and Caddy for HTTPS. Set the same
-`GH_JWT_SECRET` as the Pi, a shared `GH_SYNC_TOKEN`, then on the Pi set `GH_CLOUD_URL` and
-`GH_SYNC_TOKEN` and enable `greenhouse-sync`. The app falls back to the cloud address when the
-Pi is not reachable; controls stay disabled there while `remote_commands` is false.
+`GH_JWT_SECRET` as the Pi and a long random `GH_SYNC_TOKEN`, then connect the Pi in any of three ways:
+
+* `sudo ghctl cloud setup https://<server>` (asks for the token, tests, then saves);
+* the app: More → Settings → Cloud (administrators, on the greenhouse network);
+* the greenhouse display: Network panel → Cloud server (administrator sign-in).
+
+The address and token are stored in the controller database (`cloud:*` keys, never replicated)
+and override `GH_CLOUD_URL`/`GH_SYNC_TOKEN`. `greenhouse-sync` picks a change up within a minute.
+Until a server is set the controller raises `CLOUD_NOT_CONFIGURED`; when nothing has been uploaded
+for 30 minutes it raises `CLOUD_UNREACHABLE` (data stays on the Pi and uploads resume by
+themselves). `sudo ghctl cloud status` shows the last upload. The app falls back to the cloud
+address when the Pi is not reachable; controls stay disabled there while `remote_commands` is false.
+
+## Growth-stage schedule
+
+Each stage has a length in days (registry defaults: seedling 14, growth 16, mature 10). In
+automatic mode the control service moves to the next stage when the days are up (checked every
+minute, at local midnight), records it in the audit log and raises a `STAGE_CHANGED` notice. The
+last stage raises `HARVEST_DUE` instead. Administrators can switch to manual mode, change the days,
+set the date the current stage began, or pick a stage by hand (Thresholds → Growth stage).
+`sudo ghctl stage` prints the schedule.
 
 ## Android app
 

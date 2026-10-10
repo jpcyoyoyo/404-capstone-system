@@ -58,7 +58,7 @@ rsync -a --delete --exclude '__pycache__' --exclude '*.db' "$REPO/controller/" "
 rsync -a --delete "$REPO/contract/" "$DEST/contract/"
 rsync -a --delete "$REPO/app/dist/" "$DEST/app/dist/"
 rsync -a --exclude 'mysql.env' --exclude 'backup/' "$REPO/deploy/" "$DEST/deploy/"
-chmod +x "$DEST"/deploy/*.sh "$DEST"/deploy/*/*.sh "$DEST"/deploy/network/greenhouse-net
+chmod +x "$DEST"/deploy/*.sh "$DEST"/deploy/*/*.sh "$DEST"/deploy/network/greenhouse-net "$DEST"/deploy/network/greenhouse-netctl
 
 say "Python environment"
 [[ -d "$DEST/venv" ]] || python3 -m venv "$DEST/venv"
@@ -140,10 +140,27 @@ for u in greenhouse-sensors greenhouse-control greenhouse-api greenhouse-sync gr
 done
 cp "$REPO/deploy/network/greenhouse-net" /usr/local/sbin/greenhouse-net
 cp "$REPO/deploy/network/greenhouse-net.service" /etc/systemd/system/
+# Network helper for the display and the app (Wi-Fi set-up by a signed-in administrator only)
+install -o root -g root -m 755 "$REPO/deploy/network/greenhouse-netctl" /usr/local/sbin/greenhouse-netctl
+install -o root -g root -m 440 "$REPO/deploy/network/greenhouse-netctl.sudoers" /etc/sudoers.d/greenhouse-netctl
+visudo -cf /etc/sudoers.d/greenhouse-netctl >/dev/null || { rm -f /etc/sudoers.d/greenhouse-netctl; echo "sudoers rule rejected"; }
 systemctl daemon-reload
 systemctl enable --now greenhouse-sensors greenhouse-control greenhouse-api
 if [[ $SIM -eq 1 ]]; then systemctl enable --now greenhouse-simnodes; else systemctl disable --now greenhouse-simnodes 2>/dev/null || true; fi
-if grep -q '^GH_CLOUD_URL=.\+' "$ETC/greenhouse.env"; then systemctl enable --now greenhouse-sync; fi
+# The cloud server is required: sync always runs and raises an alert until a server is set up.
+systemctl enable --now greenhouse-sync
+
+say "Cloud server (required)"
+if sudo -E -u greenhouse "$DEST/venv/bin/greenhouse" cloud status | grep -q "NOT SET UP"; then
+  read -rp "Cloud server address (e.g. https://greenhouse.example.com; Enter to do it later): " CLOUD_URL
+  if [[ -n "$CLOUD_URL" ]]; then
+    sudo -E -u greenhouse "$DEST/venv/bin/greenhouse" cloud setup "$CLOUD_URL" || echo "not saved — retry later with: sudo ghctl cloud setup $CLOUD_URL"
+  else
+    echo "Later: sudo ghctl cloud setup https://<server>   (or the app: More → Settings → Cloud, or the display: Network)"
+  fi
+else
+  sudo -E -u greenhouse "$DEST/venv/bin/greenhouse" cloud status
+fi
 
 say "Network fallback (MAgSO Wi-Fi > router > hotspot)"
 echo "Edit $ETC/network.conf, then run: sudo $DEST/deploy/network/setup-network.sh && sudo systemctl enable --now greenhouse-net"

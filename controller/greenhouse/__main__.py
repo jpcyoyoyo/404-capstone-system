@@ -6,6 +6,8 @@
   dev                      everything in one process against the simulator — no broker, no hardware
   schema-sql               print the MySQL DDL
   hw …                     bench and commissioning checks (see greenhouse/hwcheck.py)
+  cloud status|setup|test  connection to the cloud server (required in production)
+  stage                    the growth stage and its schedule
 """
 from __future__ import annotations
 
@@ -90,6 +92,15 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("--interval", type=float, default=10.0, help="simulated node publish interval (s)")
     d.add_argument("--cycle", type=float, default=10.0, help="control cycle (s); 30 in production")
     sub.add_parser("schema-sql")
+    c = sub.add_parser("cloud", help="connection to the cloud server")
+    csub = c.add_subparsers(dest="cloud_cmd", required=True)
+    csub.add_parser("status")
+    cs = csub.add_parser("setup", help="save the server address and sync token (tests them first)")
+    cs.add_argument("url", help="e.g. https://greenhouse.example.com")
+    cs.add_argument("--token", default=None, help="GH_SYNC_TOKEN from the server's cloud.env (prompted if omitted)")
+    cs.add_argument("--force", action="store_true", help="save even if the test fails")
+    csub.add_parser("test")
+    sub.add_parser("stage")
     from . import hwcheck
     hwcheck.add_parser(sub)
     args = p.parse_args(argv)
@@ -114,6 +125,22 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.cmd == "hw":
         hwcheck.run(args, settings, reg, db)
+        return
+
+    if args.cmd == "cloud":
+        _cloud_cli(args, settings, db)
+        return
+
+    if args.cmd == "stage":
+        from . import stages
+        i = stages.info(db, reg)
+        names = {st.id: st.name for st in reg.stages}
+        print(f"stage:   {names[i['stage_id']]} — day {i['day']} of {i['stage_days']} (started {i['started_on']})")
+        print(f"crop:    day {i['crop_day']} of {i['crop_days']}")
+        print(f"mode:    {i['mode']}" + (f" — {names[i['next_stage_id']]} starts on {i['next_change_on']}" if i["next_change_on"] else ""))
+        print("days:    " + ", ".join(f"{names[k]} {i['days'][k]}" for k in i["order"]))
+        if i["harvest_due"]:
+            print("HARVEST DUE — start a new crop from the app (Thresholds → Growth stage)")
         return
 
     if args.cmd == "init-db":
@@ -161,7 +188,8 @@ def main(argv: list[str] | None = None) -> None:
         from .services.control import ControlService
         bus = _bus(settings, "control", will=(topics.status, {"online": False}))
         hal = make_hal(settings.hal, reg)
-        svc = ControlService(reg, db, bus, hal, cycle_s=settings.cycle_s_override, network_mode=settings.network_mode)
+        svc = ControlService(reg, db, bus, hal, cycle_s=settings.cycle_s_override, network_mode=settings.network_mode,
+                             settings=settings)
         svc.start()
 
         def _shutdown():
@@ -174,9 +202,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.cmd == "sync":
         from .services.sync import SyncService
-        if not settings.cloud_url or not settings.sync_token:
-            sys.exit("GH_CLOUD_URL and GH_SYNC_TOKEN are required")
-        svc = SyncService(db, settings.cloud_url, settings.sync_token, settings.sync_interval_s)
+        # Runs even before the server is set up: it then records "not set up" every pass (the control
+        # service raises CLOUD_NOT_CONFIGURED) and starts uploading as soon as a server is saved.
+        svc = SyncService(db, interval_s=settings.sync_interval_s, settings=settings)
         svc.start()
         _wait_forever([svc.stop])
         return
@@ -192,6 +220,51 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.cmd == "dev":
         run_dev(settings, reg, db, args)
+
+
+def _cloud_cli(args, settings: Settings, db) -> None:
+    from . import cloud
+    if args.cloud_cmd == "status":
+        st = cloud.state(db, settings)
+        words = {"ok": "connected", "waiting": "set up — waiting for the first upload", "error": "NOT REACHABLE",
+                 "not_configured": "NOT SET UP (required)"}
+        print(f"cloud server:  {words.get(st['health'], st['health'])}")
+        print(f"address:       {st['url'] or '—'}  (from {st['source'] or 'nowhere'})")
+        print(f"last upload:   {st['last_ok_at'] or 'never'}" + (f" — {st['last_rows']} rows" if st.get("last_rows") is not None else ""))
+        if st.get("last_error"):
+            print(f"last problem:  {st['last_error']}")
+        if st["health"] == "not_configured":
+            print("\nSet it up:  sudo ghctl cloud setup https://<server address>")
+        return
+    if args.cloud_cmd == "test":
+        cfg = cloud.get_config(db, settings)
+        if not cfg.configured:
+            sys.exit("not set up — run: sudo ghctl cloud setup https://<server address>")
+        res = cloud.test_connection(cfg.url, cfg.token)
+    else:
+        token = args.token
+        while not token:
+            token = getpass.getpass("Sync token (GH_SYNC_TOKEN in the server's cloud.env; nothing shows while typing): ").strip()
+        try:
+            url = cloud.normalise_url(args.url)
+        except ValueError as e:
+            sys.exit(str(e))
+        res = cloud.test_connection(url, token)
+    for st in res["steps"]:
+        print(f"  {'OK  ' if st['ok'] else 'FAIL'}  {st['step']}: {st['detail']}")
+    if args.cloud_cmd == "setup":
+        if not res["ok"] and not args.force:
+            sys.exit("not saved — fix the problem above, or add --force to save anyway")
+        try:
+            cloud.save_config(db, url, token)
+        except ValueError as e:
+            sys.exit(str(e))
+        from .models import AuditLog
+        with db.session() as s:
+            s.add(AuditLog(actor="ghctl", action="cloud_configured", target="cloud", detail={"url": url, "tested": res["ok"]}))
+        print(f"saved: {url}. greenhouse-sync starts uploading within a minute (check: sudo ghctl cloud status)")
+    elif not res["ok"]:
+        sys.exit(1)
 
 
 def run_dev(settings: Settings, reg, db, args) -> None:

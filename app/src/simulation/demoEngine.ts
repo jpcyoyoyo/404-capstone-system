@@ -12,7 +12,9 @@ import type {
   ActivePreset, DoseItem, EventEntry, FertilizerReport, GreenhouseMeta, HistoryPoint, HistoryResult, PresetBands,
   PresetList, Reading, Threshold, ThresholdPreset, UserItem, WaterDay,
 } from '../contract/types';
-import type { EnergyView, HistoryQuery } from '../providers/types';
+import type { EnergyView, HistoryQuery, StageSchedulePatch } from '../providers/types';
+import type { CloudState, StageSchedule } from '../contract/types';
+import { addDays, advance, computeSchedule, defaultDays, diffDays, localDate } from '../providers/stageSchedule';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 const noise = (d: number) => (Math.random() - 0.5) * 2 * d;
@@ -84,6 +86,10 @@ export class DemoController {
     bands: bandsOf(DEFAULT_THRESHOLDS), created_by: 'registry', created_at: null, updated_by: 'registry', updated_at: null,
   }];
   private activePresetId: string | null = BUILTIN_PRESET;
+  // Growth-stage schedule (same rules as controller/greenhouse/stages.py).
+  stageMode: 'auto' | 'manual' = 'auto';
+  stageDays: Record<string, number> = defaultDays(REGISTRY_META.stages);
+  stageStartedOn: string = addDays(localDate(Date.now()), -8);   // demo: the active stage began 8 days ago
 
   private startMs = Date.now();
   private tickN = 0;
@@ -158,6 +164,7 @@ export class DemoController {
   tick(dtS = 2): DemoSnapshot {
     const now = Date.now();
     this.tickN += 1;
+    if (this.tickN % 15 === 1) this.autoAdvance();
     const sun = sunFactor(now);
     const valveFog = this.acts.valve_fog?.on;
     const irrigating = this.irr.on && this.acts.pump?.on;
@@ -436,10 +443,58 @@ export class DemoController {
     if (this.events.length > 300) this.events.length = 300;
   }
 
-  setStage(id: string, by = DEMO_USER) {
+  setStage(id: string, by = DEMO_USER, startedOn?: string) {
     const prev = this.stage;
     this.stage = id;
-    this.audit.unshift({ id: this.seq++, actor: by, action: 'stage_changed', target: 'greenhouse:stage', detail: { old: prev, new: id }, occurred_at: iso(Date.now()) });
+    this.stageStartedOn = startedOn ?? localDate(Date.now());
+    this.audit.unshift({ id: this.seq++, actor: by, action: 'stage_changed', target: 'greenhouse:stage',
+      detail: { old: prev, new: id, why: 'manual', started_on: this.stageStartedOn }, occurred_at: iso(Date.now()) });
+  }
+
+  schedule(): StageSchedule {
+    return computeSchedule(this.meta.stages, this.stageDays, this.stageMode, this.stage, this.stageStartedOn, localDate(Date.now()));
+  }
+
+  setSchedule(p: StageSchedulePatch, by = DEMO_USER): StageSchedule {
+    const changed: Record<string, unknown> = {};
+    if (p.mode && p.mode !== this.stageMode) { changed.mode = { old: this.stageMode, new: p.mode }; this.stageMode = p.mode; }
+    if (p.days) {
+      for (const [k, v] of Object.entries(p.days)) {
+        if (!(k in this.stageDays)) throw new Error(`unknown stage ${k}`);
+        if (!Number.isInteger(v) || v < 1 || v > 365) throw new Error(`${k}: days must be between 1 and 365`);
+      }
+      const merged = { ...this.stageDays, ...p.days };
+      if (JSON.stringify(merged) !== JSON.stringify(this.stageDays)) { changed.days = { old: this.stageDays, new: merged }; this.stageDays = merged; }
+    }
+    if (p.started_on) {
+      if (diffDays(p.started_on, localDate(Date.now())) < 0) throw new Error('the stage cannot start in the future');
+      if (p.started_on !== this.stageStartedOn) { changed.started_on = { old: this.stageStartedOn, new: p.started_on }; this.stageStartedOn = p.started_on; }
+    }
+    if (Object.keys(changed).length) {
+      this.audit.unshift({ id: this.seq++, actor: by, action: 'stage_schedule_changed', target: 'greenhouse:stage', detail: changed, occurred_at: iso(Date.now()) });
+      this.autoAdvance();
+    }
+    return this.schedule();
+  }
+
+  /** Automatic stage change; called every tick and after a schedule change. */
+  private autoAdvance() {
+    if (this.stageMode !== 'auto') return;
+    const r = advance(this.meta.stages, this.stageDays, this.stage, this.stageStartedOn, localDate(Date.now()));
+    if (!r.moves.length) return;
+    const prev = this.stage;
+    this.stage = r.stageId; this.stageStartedOn = r.startedOn;
+    this.audit.unshift({ id: this.seq++, actor: 'system', action: 'stage_changed', target: 'greenhouse:stage',
+      detail: { old: prev, new: r.stageId, why: 'schedule', started_on: r.startedOn }, occurred_at: iso(Date.now()) });
+    const name = this.meta.stages.find(s => s.id === r.stageId)?.name ?? r.stageId;
+    this.raise('STAGE_CHANGED', 'low', 'schedule', `Growth stage changed to ${name} (automatic).`, Date.now(), null, false);
+  }
+
+  /** The demo has no cloud server; it shows a connected one so the screens can be explored. */
+  cloudState(): CloudState {
+    const t = Date.now() - 40e3;
+    return { required: true, configured: true, source: 'app', url: 'https://greenhouse.example.com', token_set: true, health: 'ok',
+      last_ok_at: iso(t), last_attempt_at: iso(t), last_error: null, last_rows: 42, total_rows: 18230 };
   }
 
   putThresholds(stage: string, list: { parameter: string; min: number; max: number; deadband?: number }[], by = DEMO_USER): Threshold[] {

@@ -47,6 +47,10 @@ export const ALERT_TITLE: Record<string, string> = {
   CONTROLLER_OFFLINE: 'Controller offline',
   DOSE_ABORTED: 'Fertilizer dose stopped',
   HAL_ERROR: 'Hardware error',
+  STAGE_CHANGED: 'Growth stage changed',
+  HARVEST_DUE: 'Harvest due',
+  CLOUD_NOT_CONFIGURED: 'Cloud server not set up',
+  CLOUD_UNREACHABLE: 'Cloud server not reachable',
 };
 
 export function alertTitle(code: string): string {
@@ -68,4 +72,11 @@ export const SUGGESTED_ACTIONS: Record<string, string[]> = {
   SENSOR_UNCALIBRATED: ['Open Calibration and record constants for this sensor'],
   ZONE_MANUAL_REQUIRED: ['Too few valid sensors in this zone — watch it by eye', 'Use Controls to irrigate manually if needed', 'Fix or replace the failed sensors'],
   MAX_RUN_EXCEEDED: ['Check for a blocked line or a stuck sensor', 'Automatic control resumes after the cooldown'],
+  STAGE_CHANGED: ['Check the new stage\'s thresholds on the Thresholds screen', 'Make sure the new irrigation circuit (fog, drip or sprinkler) is connected',
+    'To undo, pick the previous stage in Thresholds → Growth stage'],
+  HARVEST_DUE: ['Harvest the crop', 'Then start a new crop: Thresholds → Growth stage → Start new crop'],
+  CLOUD_NOT_CONFIGURED: ['Set up the server: More → Settings → Cloud (administrator)', 'Or on the greenhouse display: press N → Cloud server',
+    'Or on the controller: sudo ghctl cloud setup https://<server>'],
+  CLOUD_UNREACHABLE: ['Check the controller has internet (display: press N)', 'Check the cloud server is running',
+    'Nothing is lost: uploads resume by themselves when the connection returns'],
 };

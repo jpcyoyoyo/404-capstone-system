@@ -30,7 +30,10 @@ from ..fertigation import fertigation_meta
 from ..models import (Actuator, ActuatorEvent, Alert, AuditLog, Calibration, Command, FertigationDose,
                       GrowthStage, Sensor, SensorReading, SensorReading15m, Threshold, ThresholdPreset, User)
 from ..registry import PARAMS, Registry
+from .. import cloud as cloudmod
+from .. import netctl
 from .. import presets as presetmod
+from .. import stages as stagemod
 from ..seed import DEFAULT_STAGE_KEY, create_user
 from ..timeutil import iso, parse_iso, utcnow
 from . import sync as syncmod
@@ -149,6 +152,32 @@ class PresetEditIn(BaseModel):
 
 class StageIn(BaseModel):
     stage_id: str
+    # The date the stage began (local, YYYY-MM-DD); default today. Lets staff set up mid-crop.
+    started_on: str | None = None
+
+
+class StageScheduleIn(BaseModel):
+    mode: Literal["auto", "manual"] | None = None
+    days: dict[str, int] | None = None
+    started_on: str | None = None
+
+
+class CloudIn(BaseModel):
+    url: str = Field(min_length=4, max_length=200)
+    token: str = Field(min_length=1, max_length=200)
+    # Save even if the test fails (e.g. setting up before the server is online). Default: test first.
+    force: bool = False
+
+
+class CloudTestIn(BaseModel):
+    url: str | None = None
+    token: str | None = None
+
+
+class WifiIn(BaseModel):
+    profile: Literal["magso", "router"] = "magso"
+    ssid: str = Field(min_length=1, max_length=32)
+    password: str = Field(default="", max_length=63)
 
 
 class CalibrationIn(BaseModel):
@@ -192,8 +221,9 @@ class FaultIn(BaseModel):
 
 
 # ── app factory ─────────────────────────────────────────────────────────────
-def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> FastAPI:
+def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, network: netctl.Network | None = None) -> FastAPI:
     topics = Topics(reg.greenhouse_id)
+    net = network or netctl.make_network(settings.hal)
     cache = LiveCache(bus, topics)
     waiter = AckWaiter(bus, topics)
     is_cloud = settings.role == "cloud"
@@ -348,6 +378,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
             "capabilities": {**reg.capabilities, "remote_commands": reg.capabilities.get("remote_commands", False) if is_cloud else True},
             "network_mode": cache.status.get("network_mode", settings.network_mode),
             "active_stage": db.kv_get(DEFAULT_STAGE_KEY), "active_preset": presetmod.active_info(db), "stages": stage_list,
+            "stage_schedule": stagemod.info(db, reg),
             "zones": [{"id": z.id, "name": z.name, "description": z.description} for z in reg.zones],
             "nodes": [{"id": n.id, "board": n.board, "zone": n.zone} for n in reg.nodes],
             "sensors": [{"id": sd.id, "type": sd.type, "zone": sd.zone, "host": sd.host, "unit": sd.unit,
@@ -417,7 +448,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
         readings = live_readings()
         st = controller_status()
         return {"greenhouse_id": reg.greenhouse_id, "server_time": iso(utcnow()), "active_stage": db.kv_get(DEFAULT_STAGE_KEY),
-                "active_preset": presetmod.active_info(db),
+                "active_preset": presetmod.active_info(db), "stage_schedule": stagemod.info(db, reg),
                 "controller": {"online": st.get("online", False), "ts": st.get("ts"), "network_mode": st.get("network_mode"),
                                "nodes": st.get("nodes", {})},
                 "readings": readings, "zones": zone_summary(readings), "actuators": actuators_live(),
@@ -726,21 +757,136 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
 
     @app.get("/greenhouse/{gid}/stage", tags=["config"])
     def get_stage(gid: str, user: dict = Depends(reader)):
-        return {"stage_id": db.kv_get(DEFAULT_STAGE_KEY)}
+        """The active stage and its schedule (day count, mode, days per stage, next change)."""
+        return stagemod.info(db, reg)
+
+    def stage_changed(by: str, old: str | None, new: str, why: str, extra: dict | None = None) -> None:
+        audit(by, "stage_changed", "greenhouse:stage", {"old": old, "new": new, "why": why, **(extra or {})})
+        bus.publish(topics.config_changed, {"what": "stage", "stage": new, "ts": iso(utcnow())}, qos=1)
 
     @app.put("/greenhouse/{gid}/stage", tags=["config"])
     def put_stage(gid: str, body: StageIn, user: dict = Depends(admin)):
+        """Make a stage active now (the manual option). In automatic mode the day count restarts from
+        this stage, so the following stages still change on their own."""
         if is_cloud:
             raise HTTPException(409, "the growth stage is changed on the greenhouse network")
         try:
             reg.stage(body.stage_id)
         except KeyError:
             raise HTTPException(404, "unknown stage")
-        old = db.kv_get(DEFAULT_STAGE_KEY)
-        db.kv_set(DEFAULT_STAGE_KEY, body.stage_id)
-        audit(user["email"], "stage_changed", "greenhouse:stage", {"old": old, "new": body.stage_id})
-        bus.publish(topics.config_changed, {"what": "stage", "stage": body.stage_id, "ts": iso(utcnow())}, qos=1)
-        return {"stage_id": body.stage_id}
+        started = None
+        if body.started_on:
+            try:
+                started = datetime.fromisoformat(body.started_on).date()
+            except ValueError:
+                raise HTTPException(422, "started_on must be a date (YYYY-MM-DD)")
+            if started > stagemod.today_local():
+                raise HTTPException(422, "the stage cannot start in the future")
+        old = stagemod.set_stage(db, reg, body.stage_id, started)
+        stage_changed(user["email"], old, body.stage_id, "manual", {"started_on": stagemod.info(db, reg)["started_on"]})
+        return {"stage_id": body.stage_id, **stagemod.info(db, reg)}
+
+    @app.put("/greenhouse/{gid}/stage-schedule", tags=["config"])
+    def put_stage_schedule(gid: str, body: StageScheduleIn, user: dict = Depends(admin)):
+        """Automatic or manual stage change, the days each stage lasts, and the date the active stage began."""
+        if is_cloud:
+            raise HTTPException(409, "the stage schedule is changed on the greenhouse network")
+        try:
+            changed = stagemod.set_schedule(db, reg, mode_=body.mode, days=body.days, started_on=body.started_on)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        if changed:
+            audit(user["email"], "stage_schedule_changed", "greenhouse:stage", changed)
+            before = db.kv_get(DEFAULT_STAGE_KEY)
+            moves = stagemod.advance_if_due(db, reg)     # e.g. days shortened below the current day
+            if moves:
+                stage_changed("system", before, moves[-1][1], "schedule", {"steps": [m[1] for m in moves]})
+            else:
+                bus.publish(topics.config_changed, {"what": "stage_schedule", "ts": iso(utcnow())}, qos=1)
+        return stagemod.info(db, reg)
+
+    # ── cloud server ────────────────────────────────────────────────────
+    @app.get("/cloud", tags=["cloud"])
+    def cloud_state(user: dict = Depends(reader)):
+        """Connection to the cloud server (required). Never returns the sync token."""
+        if is_cloud:
+            return {"required": True, "configured": True, "health": "ok", "this_is_the_cloud": True}
+        return cloudmod.state(db, settings)
+
+    @app.post("/cloud/test", tags=["cloud"])
+    def cloud_test(body: CloudTestIn, user: dict = Depends(admin)):
+        cfg = cloudmod.get_config(db, settings)
+        url, token = body.url or cfg.url, body.token or cfg.token
+        if not url or not token:
+            raise HTTPException(422, "enter the server address and the sync token")
+        return cloudmod.test_connection(url, token)
+
+    @app.put("/cloud", tags=["cloud"])
+    def cloud_setup(body: CloudIn, user: dict = Depends(admin)):
+        """Connect the controller to the cloud server. Tests the address and token first."""
+        if is_cloud:
+            raise HTTPException(409, "this is the cloud server")
+        try:
+            url = cloudmod.normalise_url(body.url)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        test = cloudmod.test_connection(url, body.token)
+        if not test["ok"] and not body.force:
+            return JSONResponse({"detail": "the connection test failed — nothing was saved", "test": test}, status_code=422)
+        try:
+            cloudmod.save_config(db, url, body.token)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        audit(user["email"], "cloud_configured", "cloud", {"url": url, "tested": test["ok"]})
+        return {**cloudmod.state(db, settings), "test": test}
+
+    # ── network (greenhouse display and app) ────────────────────────────
+    def no_cloud_network():
+        if is_cloud:
+            raise HTTPException(404, "network settings exist only on the controller")
+
+    def net_call(fn, *a):
+        try:
+            return fn(*a)
+        except netctl.NetError as e:
+            raise HTTPException(422, str(e))
+
+    @app.get("/network", tags=["network"])
+    def network_status(request: Request, user: dict = Depends(reader)):
+        """How the controller is connected: mode, Wi-Fi, addresses, internet and the cloud server."""
+        no_cloud_network()
+        st = net_call(net.status)
+        addrs = [a.split("/")[0] for a in (st.get("addresses") or {}).values() if a]
+        return {**st, "app_urls": [f"http://{a}:8000" for a in addrs] + [f"http://{st.get('hostname') or 'greenhouse'}.local:8000"],
+                "cloud": cloudmod.state(db, settings)}
+
+    @app.get("/network/wifi", tags=["network"])
+    def network_scan(user: dict = Depends(admin)):
+        no_cloud_network()
+        return net_call(net.scan)
+
+    @app.post("/network/wifi", tags=["network"])
+    def network_set(body: WifiIn, user: dict = Depends(admin)):
+        """Save a Wi-Fi network as the MAgSO or router profile and join it."""
+        no_cloud_network()
+        out = net_call(net.set_wifi, body.profile, body.ssid, body.password)
+        audit(user["email"], "network_changed", f"network:{body.profile}",
+              {"ssid": body.ssid, "secured": bool(body.password), "connected": out.get("connected")})
+        return out
+
+    @app.delete("/network/wifi/{profile}", tags=["network"])
+    def network_forget(profile: Literal["magso", "router"], user: dict = Depends(admin)):
+        no_cloud_network()
+        out = net_call(net.forget, profile)
+        audit(user["email"], "network_changed", f"network:{profile}", {"forgotten": True})
+        return out
+
+    @app.post("/network/hotspot", tags=["network"])
+    def network_hotspot(user: dict = Depends(admin)):
+        no_cloud_network()
+        out = net_call(net.hotspot)
+        audit(user["email"], "network_changed", "network:hotspot", {"started": True})
+        return out
 
     # ── alerts ──────────────────────────────────────────────────────────
     def open_alert_count() -> int:
@@ -875,7 +1021,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus) -> Fas
             c = last.get(sd.id)
             out.append({"sensor_id": sd.id, "type": sd.type, "zone": sd.zone, "kind": sd.calibration, "installed": sd.installed,
                         "calibrated_at": iso(c.performed_at) if c else None, "performed_by": c.performed_by if c else None,
-                        "days_since": (now - c.performed_at).days if c else None, "constants": c.constants if c else None,
+                        "days_since": max(0, (now - c.performed_at).days) if c else None, "constants": c.constants if c else None,
                         "latest_raw": cache.readings.get(sd.id, {}).get("raw")})
         return out
 

@@ -12,7 +12,7 @@ import mqtt, { MqttClient } from 'mqtt';
 import { ApiError, type ApiClient } from '../api/client';
 import { REGISTRY_META } from '../contract/registry.generated';
 import type {
-  ActivePreset, ActuatorState, AlertItem, GreenhouseMeta, LiveSnapshot, MqttInfo, Reading, Threshold, ZoneSummary,
+  ActivePreset, ActuatorState, AlertItem, GreenhouseMeta, LiveSnapshot, MqttInfo, Reading, StageSchedule, Threshold, ZoneSummary,
 } from '../contract/types';
 import { useAuth } from '../contexts/AuthContext';
 import { useConnection } from '../contexts/ConnectionContext';
@@ -56,6 +56,7 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
   const [stage, setStage] = useState<string>(cached?.snapshot.active_stage ?? 'growth');
   const [thresholds, setThresholds] = useState<Threshold[]>(cached?.thresholds ?? []);
   const [activePreset, setActivePreset] = useState<ActivePreset | null>(cached?.snapshot.active_preset ?? null);
+  const [schedule, setSchedule] = useState<StageSchedule | null>(cached?.snapshot.stage_schedule ?? null);
   const [openAlerts, setOpenAlerts] = useState<AlertItem[]>([]);
   const [unackedCount, setUnacked] = useState(0);
   const [controllerOnline, setOnline] = useState(false);
@@ -99,6 +100,7 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     setLastUpdate(snap.server_time);
     if (snap.active_stage !== stageRef.current) setStage(snap.active_stage);
     if (snap.active_preset !== undefined) setActivePreset(snap.active_preset);
+    if (snap.stage_schedule) setSchedule(snap.stage_schedule);
     metaRef.current = m;
   }, []);
 
@@ -256,11 +258,14 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     users: () => api.users(),
     addUser: u => api.addUser(u),
     patchUser: (id, p) => api.patchUser(id, p),
+    cloud: () => api.cloud(),
+    cloudTest: p => api.cloudTest(p),
+    cloudSetup: p => api.cloudSetup(p),
   } : {
     history: offline, thresholds: offline, putThresholds: offline, presets: offline, createPreset: offline,
     editPreset: offline, deletePreset: offline, applyPreset: offline, alerts: offline, ackAlert: offline, audit: offline,
     events: offline, waterUsage: offline, fertilizer: offline, calibrations: offline, calibrate: offline, users: offline,
-    addUser: offline, patchUser: offline,
+    addUser: offline, patchUser: offline, cloud: offline, cloudTest: offline, cloudSetup: offline,
   }, [api, loadAlerts, loadActivePreset, loadThresholds]);
 
   const sendCommand = useCallback<GreenhouseData['sendCommand']>(async (c) => {
@@ -270,11 +275,20 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     return ack;
   }, [api, refresh]);
 
-  const setActiveStage = useCallback(async (id: string) => {
+  const setActiveStage = useCallback(async (id: string, startedOn?: string) => {
     if (!api) throw new Error('Not connected to the controller.');
-    await api.setStage(metaRef.current.id, id);
+    const r = await api.setStage(metaRef.current.id, id, startedOn);
+    setSchedule(r);
     setStage(id);
     await loadThresholds(id);
+  }, [api, loadThresholds]);
+
+  const setStageSchedule = useCallback<GreenhouseData['setStageSchedule']>(async (p) => {
+    if (!api) throw new Error('Not connected to the controller.');
+    const r = await api.putStageSchedule(metaRef.current.id, p);
+    setSchedule(r);
+    if (r.stage_id !== stageRef.current) { setStage(r.stage_id); await loadThresholds(r.stage_id); }
+    return r;
   }, [api, loadThresholds]);
 
   const link = conn.link;
@@ -283,10 +297,10 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     controllerOnline: !!api && controllerOnline, nodes,
     meta: { ...meta, active_stage: stage, active_preset: activePreset },
     readings, zones, metrics, actuators,
-    activeStageId: stage, thresholds: thrMap, activePreset, openAlerts, unackedCount,
+    activeStageId: stage, stageSchedule: schedule, thresholds: thrMap, activePreset, openAlerts, unackedCount,
     energy: null,
     canCommand: !!api && controllerOnline && (link === 'local' || !!meta.capabilities.remote_commands),
-    sendCommand, setActiveStage, refresh, reloadAlerts: loadAlerts, data,
+    sendCommand, setActiveStage, setStageSchedule, refresh, reloadAlerts: loadAlerts, data,
   };
   return <GreenhouseContext.Provider value={value}>{children}</GreenhouseContext.Provider>;
 };

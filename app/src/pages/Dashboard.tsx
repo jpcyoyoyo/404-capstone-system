@@ -5,6 +5,7 @@ import { waterOutline, flaskOutline, chevronForward, notificationsOutline, optio
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import { useAppSettings } from '../contexts/AppSettingsContext';
+import { scheduleLine } from '../providers/stageSchedule';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { formatMetric } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
@@ -67,6 +68,11 @@ const Dashboard: React.FC = () => {
           <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginTop: 2 }}>
             {stage?.description} · irrigation by {stage?.irrigation_mode}
           </div>
+          {gh.stageSchedule && (
+            <div style={{ fontSize: 12, color: gh.stageSchedule.harvest_due ? '#f59e0b' : 'var(--sg-text)', marginTop: 6, fontWeight: 600 }}>
+              {scheduleLine(gh.stageSchedule, id => gh.meta.stages.find(s => s.id === id)?.name ?? id)}
+            </div>
+          )}
         </div>
 
         <div className="sg-row-between" style={{ marginBottom: 8 }}>

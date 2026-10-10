@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 class ControlService:
     def __init__(self, reg: Registry, db: Database, bus: Bus, hal: Hal, cycle_s: float | None = None,
-                 network_mode: str = "unknown"):
+                 network_mode: str = "unknown", settings=None):
         self.reg, self.db, self.bus, self.hal = reg, db, bus, hal
         self.topics = Topics(reg.greenhouse_id)
         self.cycle_s = cycle_s or float(reg.control.get("cycle_s", 30))
@@ -42,6 +42,12 @@ class ControlService:
         self._last_published: dict[str, tuple] = {}
         self._last_deferred: dict[str, str] = {}
         self._last_result: TickResult | None = None
+        # Housekeeping that runs about once a minute: automatic stage change and the cloud check.
+        # The cloud check needs the settings (production passes them; tests and dev mode do not).
+        self.settings = settings
+        self._started_at = utcnow()
+        self._house_at: datetime | None = None
+        self._house_alerts: list[AlertSignal] = []
         self.load_config()
 
     # ── configuration from the database ──────────────────────────────────
@@ -104,6 +110,12 @@ class ControlService:
     # ── the loop ─────────────────────────────────────────────────────────
     def tick(self, now: datetime | None = None) -> TickResult:
         now = now or utcnow()
+        if self._house_at is None or (now - self._house_at).total_seconds() >= 60:
+            self._house_at = now
+            try:
+                self.housekeeping(now)
+            except Exception:
+                log.exception("housekeeping failed")
         with self.lock:
             res = self.engine.tick(now)
             self._last_result = res
@@ -162,7 +174,41 @@ class ControlService:
                     row = s.get(Actuator, aid)
                     if row:
                         row.mode = mode
-        self.alerts.sync(res.alerts, now)
+        self.alerts.sync(res.alerts + self._house_alerts, now)
+
+    # ── once a minute: growth-stage schedule and cloud connection ───────
+    def housekeeping(self, now: datetime) -> None:
+        from .. import cloud, stages
+        alerts: list[AlertSignal] = []
+        before = self.db.kv_get(DEFAULT_STAGE_KEY)
+        moves = stages.advance_if_due(self.db, self.reg, now)
+        if moves:
+            new = moves[-1][1]
+            names = {st.id: st.name for st in self.reg.stages}
+            info = stages.info(self.db, self.reg, now)
+            with self.db.session() as s:
+                s.add(AuditLog(actor="system", action="stage_changed", target="greenhouse:stage", occurred_at=now,
+                               detail={"old": before, "new": new, "why": "schedule", "started_on": info["started_on"],
+                                       "steps": [m[1] for m in moves]}))
+            log.info("growth stage %s → %s (day %d of the crop, automatic)", before, new, info["crop_day"])
+            self.load_config()
+            self.bus.publish(self.topics.config_changed, {"what": "stage", "stage": new, "ts": iso(now)}, qos=1)
+            alerts.append(AlertSignal(f"stage:{new}:{info['started_on']}", "low", "schedule", "STAGE_CHANGED",
+                                      f"Growth stage changed to {names.get(new, new)} (crop day {info['crop_day']}). "
+                                      f"Irrigation now uses the {self.reg.stage(new).irrigation_mode} circuit.", kind="event"))
+        info = stages.info(self.db, self.reg, now)
+        if info["harvest_due"]:
+            alerts.append(AlertSignal("stage:harvest_due", "low", "schedule", "HARVEST_DUE",
+                                      f"The {self.reg.stage(info['stage_id']).name} stage ended {info['day'] - info['stage_days']} "
+                                      "day(s) ago. Harvest, then start a new crop (Thresholds → Growth stage → Start new crop)."))
+        if self.settings is not None and self.settings.role == "controller":
+            c = cloud.alert_condition(self.db, self.settings, now, since=self._started_at)
+            if c:
+                alerts.append(AlertSignal(f"cloud:{c[0]}", "medium", "cloud", c[0], c[1]))
+        self._house_alerts = [a for a in alerts if a.kind == "condition"]
+        events = [a for a in alerts if a.kind == "event"]
+        if events:
+            self.alerts.sync(events + self._house_alerts + (self._last_result.alerts if self._last_result else []), now)
 
     def _network_mode(self) -> str:
         """greenhouse-net writes the current mode (magso | router | hotspot) to a small file."""

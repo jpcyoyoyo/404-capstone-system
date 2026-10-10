@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { IonPage, IonContent, IonButton, IonSpinner, useIonToast } from '@ionic/react';
+import { useLocation } from 'react-router-dom';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
@@ -8,8 +9,9 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useCommand } from '../components/useCommand';
 import type { Quality, UserItem } from '../contract/types';
 import { fmtDateTime, timeAgo, untilText } from '../components/format';
+import CloudSetup, { type CloudFns } from '../components/CloudSetup';
 
-const TABS = [['users', 'Users'], ['overrides', 'Overrides'], ['diagnostics', 'Diagnostics'], ['data', 'Data']] as const;
+const TABS = [['users', 'Users'], ['cloud', 'Cloud'], ['overrides', 'Overrides'], ['diagnostics', 'Diagnostics'], ['data', 'Data']] as const;
 type Tab = typeof TABS[number][0];
 
 const input: React.CSSProperties = {
@@ -164,6 +166,20 @@ const Diagnostics: React.FC = () => {
   );
 };
 
+const CloudTab: React.FC = () => {
+  const gh = useGreenhouse();
+  const { isAdmin } = useAuth();
+  const fns = useMemo<CloudFns>(() => ({ load: gh.data.cloud, test: gh.data.cloudTest, setup: gh.data.cloudSetup }), [gh.data]);
+  const onSite = gh.mode === 'demo' || gh.link === 'local';
+  return (
+    <div className="sg-card">
+      <div className="sg-section-title">Cloud server</div>
+      <CloudSetup fns={fns} canEdit={isAdmin && onSite}
+        note={!onSite ? 'Set-up is done on the greenhouse network (or on the greenhouse display).' : undefined} />
+    </div>
+  );
+};
+
 const DataTab: React.FC = () => (
   <div className="sg-card">
     {[
@@ -171,7 +187,7 @@ const DataTab: React.FC = () => (
       ['15-minute averages', 'kept for the whole study'],
       ['Commands, device events, audit log', 'kept for the whole study'],
       ['Backups', 'nightly database dump on the controller'],
-      ['Cloud copy', 'readings and logs are copied to the cloud replica when internet is available'],
+      ['Cloud copy', 'required: readings and logs are uploaded to the cloud server every minute; after an outage they catch up (Settings → Cloud)'],
       ['Export', 'Records → Export CSV'],
     ].map(([k, v]) => (
       <div key={k} style={{ padding: '8px 0', borderBottom: '1px solid var(--sg-border)' }}>
@@ -183,7 +199,9 @@ const DataTab: React.FC = () => (
 );
 
 const Settings: React.FC = () => {
-  const [tab, setTab] = useState<Tab>('users');
+  const loc = useLocation();
+  const wanted = new URLSearchParams(loc.search).get('tab');
+  const [tab, setTab] = useState<Tab>(TABS.some(([v]) => v === wanted) ? wanted as Tab : 'users');
   return (
     <IonPage>
       <PersistentHeader showBack defaultHref="/tabs/more" />
@@ -196,6 +214,7 @@ const Settings: React.FC = () => {
           ))}
         </div>
         {tab === 'users' && <Users />}
+        {tab === 'cloud' && <CloudTab />}
         {tab === 'overrides' && <Overrides />}
         {tab === 'diagnostics' && <Diagnostics />}
         {tab === 'data' && <DataTab />}

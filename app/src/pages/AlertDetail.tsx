@@ -118,6 +118,12 @@ const AlertDetail: React.FC = () => {
               <span className="sg-section-title" style={{ marginBottom: 0 }}>What to do</span>
             </div>
             {actions.map(a => <div key={a} style={{ fontSize: 13, color: 'var(--sg-text)', padding: '4px 0' }}>• {a}</div>)}
+            {alert.code.startsWith('CLOUD_') && (
+              <IonButton size="small" fill="outline" style={{ marginTop: 6 }} onClick={() => history.push('/tabs/settings?tab=cloud')}>Open Settings → Cloud</IonButton>
+            )}
+            {(alert.code === 'STAGE_CHANGED' || alert.code === 'HARVEST_DUE') && (
+              <IonButton size="small" fill="outline" style={{ marginTop: 6 }} onClick={() => history.push('/tabs/schedules')}>Open Thresholds</IonButton>
+            )}
           </div>
         )}
 

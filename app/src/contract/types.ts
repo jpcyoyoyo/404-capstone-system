@@ -115,7 +115,66 @@ export interface StageDef {
   sequence: number;
   irrigation_mode: Circuit | string;
   description: string;
+  /** Default length in days (registry); the schedule's `days` holds the values in force. */
+  days?: number;
 }
+
+/** GET /greenhouse/{id}/stage — the growth-stage schedule (controller/greenhouse/stages.py). */
+export interface StageSchedule {
+  mode: 'auto' | 'manual';
+  stage_id: string;
+  /** Local date the active stage began (day 1), YYYY-MM-DD. */
+  started_on: string;
+  day: number;
+  stage_days: number;
+  days_left: number;
+  ends_on: string;
+  next_stage_id: string | null;
+  /** When the next stage starts on its own; null in manual mode or in the last stage. */
+  next_change_on: string | null;
+  crop_day: number;
+  crop_days: number;
+  harvest_due: boolean;
+  overdue: boolean;
+  days: Record<string, number>;
+  order: string[];
+}
+
+/** GET /cloud — the controller's connection to the cloud server (never includes the token). */
+export interface CloudState {
+  required: boolean;
+  configured: boolean;
+  source?: 'app' | 'env' | null;
+  url?: string | null;
+  token_set?: boolean;
+  health: 'ok' | 'waiting' | 'error' | 'not_configured';
+  last_ok_at?: string | null;
+  last_attempt_at?: string | null;
+  last_error?: string | null;
+  last_rows?: number | null;
+  total_rows?: number | null;
+  this_is_the_cloud?: boolean;
+}
+
+export interface CloudTest { ok: boolean; steps: { step: string; ok: boolean; detail: string }[] }
+
+/** GET /network — how the controller is connected (greenhouse display and app). */
+export interface NetworkStatus {
+  mode: string;
+  simulated?: boolean;
+  wifi: { ssid: string; signal: number; profile?: string | null } | null;
+  addresses: Record<string, string>;
+  gateway: string | null;
+  internet: boolean;
+  connectivity?: string;
+  hotspot: { ssid: string | null; address: string };
+  profiles: Record<'magso' | 'router', string | null>;
+  hostname?: string;
+  app_urls: string[];
+  cloud: CloudState;
+}
+
+export interface WifiNetwork { ssid: string; signal: number; security: string; in_use: boolean }
 
 export interface SensorDef {
   id: string;
@@ -149,6 +208,7 @@ export interface GreenhouseMeta {
   network_mode?: string;
   active_stage?: string;
   active_preset?: ActivePreset | null;
+  stage_schedule?: StageSchedule;
   stages: StageDef[];
   zones: { id: number; name: string; description: string }[];
   nodes: { id: string; board: string; zone: number }[];
@@ -173,6 +233,7 @@ export interface LiveSnapshot {
   server_time: string;
   active_stage: string;
   active_preset?: ActivePreset | null;
+  stage_schedule?: StageSchedule;
   controller: { online: boolean; ts: string | null; network_mode?: string; nodes?: Record<string, boolean> };
   readings: Record<string, Reading>;
   zones: Record<string, ZoneSummary>;

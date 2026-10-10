@@ -45,6 +45,7 @@ export const REGISTRY_META: GreenhouseMeta = {
       "name": "Seedling",
       "sequence": 1,
       "irrigation_mode": "fog",
+      "days": 14,
       "description": "Fogging/misting, high humidity"
     },
     {
@@ -52,6 +53,7 @@ export const REGISTRY_META: GreenhouseMeta = {
       "name": "Growth",
       "sequence": 2,
       "irrigation_mode": "drip",
+      "days": 16,
       "description": "Balanced drip irrigation"
     },
     {
@@ -59,6 +61,7 @@ export const REGISTRY_META: GreenhouseMeta = {
       "name": "Mature",
       "sequence": 3,
       "irrigation_mode": "sprinkler",
+      "days": 10,
       "description": "Pressurised sprinklers"
     }
   ],

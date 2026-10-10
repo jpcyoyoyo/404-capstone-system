@@ -4,8 +4,8 @@
 // useGreenhouse() and only look at `mode`/`link` to label what they show.
 import type {
   Ack, ActuatorState, AlertItem, AuditEntry, CalibrationBody, CalibrationEntry, CommandRequest, EventEntry,
-  ActivePreset, FertilizerReport, GreenhouseMeta, HistoryResult, PresetBands, PresetList, Reading, Threshold, ThresholdPreset,
-  UserItem, WaterDay, ZoneSummary,
+  ActivePreset, CloudState, CloudTest, FertilizerReport, GreenhouseMeta, HistoryResult, PresetBands, PresetList, Reading,
+  StageSchedule, Threshold, ThresholdPreset, UserItem, WaterDay, ZoneSummary,
 } from '../contract/types';
 
 export type Link = 'local' | 'remote' | 'demo' | 'offline';
@@ -66,7 +66,14 @@ export interface DataService {
   users(): Promise<UserItem[]>;
   addUser(u: { email: string; name: string; password: string; role: 'admin' | 'viewer' }): Promise<UserItem>;
   patchUser(id: number, patch: Partial<{ name: string; role: 'admin' | 'viewer'; active: boolean; password: string }>): Promise<UserItem>;
+  /** Connection to the cloud server (required). Set-up is admin-only, on the greenhouse network. */
+  cloud(): Promise<CloudState>;
+  cloudTest(p: { url?: string; token?: string }): Promise<CloudTest>;
+  /** Tests first; rejects with an ApiError whose body.test explains a failed test (nothing saved). */
+  cloudSetup(p: { url: string; token: string; force?: boolean }): Promise<CloudState & { test: CloudTest }>;
 }
+
+export interface StageSchedulePatch { mode?: 'auto' | 'manual'; days?: Record<string, number>; started_on?: string }
 
 export interface GreenhouseData {
   mode: 'live' | 'demo';
@@ -88,6 +95,8 @@ export interface GreenhouseData {
   actuators: Record<string, ActuatorState>;
 
   activeStageId: string;
+  /** Day count, automatic/manual mode, days per stage and the next change. Null until loaded. */
+  stageSchedule: StageSchedule | null;
   /** Thresholds for the active stage, keyed by parameter. */
   thresholds: Record<string, Threshold>;
   /** The plant preset the thresholds came from, if any. */
@@ -100,7 +109,9 @@ export interface GreenhouseData {
   canCommand: boolean;
 
   sendCommand(c: CommandInput): Promise<Ack>;
-  setActiveStage(stageId: string): Promise<void>;
+  /** The manual option: make a stage active now (or counting from `startedOn`, YYYY-MM-DD). */
+  setActiveStage(stageId: string, startedOn?: string): Promise<void>;
+  setStageSchedule(p: StageSchedulePatch): Promise<StageSchedule>;
   refresh(): Promise<void>;
   /** Ask the provider to reload alerts after a change made elsewhere. */
   reloadAlerts(): Promise<void>;

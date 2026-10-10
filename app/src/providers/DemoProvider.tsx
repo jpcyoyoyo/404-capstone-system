@@ -26,6 +26,7 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [snap, setSnap] = useState<DemoSnapshot>(() => engine.snapshot());
   const [hist, setHist] = useState<Record<string, number[]>>({});
   const [thrVersion, setThrVersion] = useState(0);
+  const [schedVersion, setSchedVersion] = useState(0);
   const whoRef = useRef(who);
   whoRef.current = who;
 
@@ -48,6 +49,8 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const thresholds = useMemo(() => thresholdMap(engine.thresholds[snap.stage] ?? []), [engine, snap.stage, thrVersion]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const activePreset = useMemo(() => engine.activePreset(), [engine, thrVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stageSchedule = useMemo(() => engine.schedule(), [engine, snap.stage, schedVersion]);
   const metrics = useMemo(() => buildMetrics(engine.meta, snap.readings, zones, thresholds, hist), [engine, snap.readings, zones, thresholds, hist]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const openAlerts = useMemo(() => engine.alertsList('open'), [engine, snap.alertsVersion]);
@@ -74,6 +77,9 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     users: () => later(() => engine.users),
     addUser: u => later(() => engine.addUser(u)),
     patchUser: (id, p) => later(() => engine.patchUser(id, p)),
+    cloud: () => later(() => engine.cloudState()),
+    cloudTest: () => later(() => ({ ok: false, steps: [{ step: 'demo', ok: false, detail: 'Demo mode has no cloud server — sign in to the greenhouse to set it up.' }] }), 400),
+    cloudSetup: () => later(() => { throw new Error('Demo mode has no cloud server — sign in to the greenhouse to set it up.'); }, 400),
   }), [engine]);
 
   const sendCommand = useCallback<GreenhouseData['sendCommand']>(async (c) => {
@@ -83,9 +89,18 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return ack;
   }, [engine]);
 
-  const setActiveStage = useCallback(async (id: string) => {
-    engine.setStage(id, whoRef.current);
+  const setActiveStage = useCallback(async (id: string, startedOn?: string) => {
+    engine.setStage(id, whoRef.current, startedOn);
     setSnap(engine.snapshot());
+    setSchedVersion(v => v + 1);
+  }, [engine]);
+
+  const setStageSchedule = useCallback<GreenhouseData['setStageSchedule']>(async (p) => {
+    await new Promise(r => setTimeout(r, 200));
+    const r = engine.setSchedule(p, whoRef.current);
+    setSnap(engine.snapshot());
+    setSchedVersion(v => v + 1);
+    return r;
   }, [engine]);
 
   const value: GreenhouseData = {
@@ -93,10 +108,10 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     lastUpdate: new Date(snap.now).toISOString(), controllerOnline: true, nodes: { node_a: true, node_b: true },
     meta: { ...engine.meta, active_stage: snap.stage, active_preset: activePreset },
     readings: snap.readings, zones, metrics, actuators: snap.actuators,
-    activeStageId: snap.stage, thresholds, activePreset, openAlerts, unackedCount,
+    activeStageId: snap.stage, stageSchedule, thresholds, activePreset, openAlerts, unackedCount,
     energy: snap.energy,
     canCommand: true,
-    sendCommand, setActiveStage,
+    sendCommand, setActiveStage, setStageSchedule,
     refresh: async () => setSnap(engine.snapshot()),
     reloadAlerts: async () => setSnap(engine.snapshot()),
     data,

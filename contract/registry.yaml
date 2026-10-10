@@ -31,10 +31,13 @@ nodes:
   - { id: node_a, board: esp8266, zone: 1, publish_interval_s: 30 }
   - { id: node_b, board: esp32,   zone: 2, publish_interval_s: 30 }
 
+# days = how long each stage lasts by default (petchay: about 40 days from sowing to harvest; confirm with
+# MAgSO). With automatic stage change on, the controller moves to the next stage when the days are up.
+# The days are edited from the app (Thresholds → Growth stage schedule); these are defaults only.
 growth_stages:
-  - { id: seedling, name: Seedling, sequence: 1, irrigation_mode: fog,       description: "Fogging/misting, high humidity" }
-  - { id: growth,   name: Growth,   sequence: 2, irrigation_mode: drip,      description: Balanced drip irrigation }
-  - { id: mature,   name: Mature,   sequence: 3, irrigation_mode: sprinkler, description: Pressurised sprinklers }
+  - { id: seedling, name: Seedling, sequence: 1, irrigation_mode: fog,       days: 14, description: "Fogging/misting, high humidity" }
+  - { id: growth,   name: Growth,   sequence: 2, irrigation_mode: drip,      days: 16, description: Balanced drip irrigation }
+  - { id: mature,   name: Mature,   sequence: 3, irrigation_mode: sprinkler, days: 10, description: Pressurised sprinklers }
 
 # Petchay reference values (Implementation Plan §8.1). Validate against MAgSO's
 # agronomic guidance. These are DEFAULTS only: after first start the database

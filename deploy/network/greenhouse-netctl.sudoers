@@ -1,0 +1,4 @@
+# /etc/sudoers.d/greenhouse-netctl (0440) — installed by deploy/pi-setup.sh.
+# The greenhouse API account may run the network helper as root, and nothing else.
+# Network changes are only offered to signed-in administrators (API: POST /network/wifi).
+greenhouse ALL=(root) NOPASSWD: /usr/local/sbin/greenhouse-netctl

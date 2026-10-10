@@ -1,12 +1,13 @@
 // Thin REST client for the controller API (controller/greenhouse/services/api.py).
 import type {
   Ack, AlertItem, AuditEntry, CalibrationBody, CalibrationEntry, CommandRequest, EventEntry, FertilizerReport,
-  ActivePreset, GreenhouseMeta, HistoryResult, LiveSnapshot, PresetBands, PresetList, Threshold, ThresholdPreset, TokenResponse,
-  UserItem, WaterDay,
+  ActivePreset, CloudState, CloudTest, GreenhouseMeta, HistoryResult, LiveSnapshot, NetworkStatus, PresetBands, PresetList,
+  StageSchedule, Threshold, ThresholdPreset, TokenResponse, UserItem, WaterDay, WifiNetwork,
 } from '../contract/types';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  /** The parsed JSON error body, when there was one (e.g. the cloud test result on a failed set-up). */
+  constructor(public status: number, message: string, public body?: unknown) { super(message); }
 }
 
 export interface TokenSource {
@@ -71,12 +72,14 @@ export class ApiClient {
     }
     if (!r.ok) {
       let msg = `${r.status} ${r.statusText}`;
+      let j: unknown;
       try {
-        const j = await r.json();
-        if (typeof j.detail === 'string') msg = j.detail;
-        else if (Array.isArray(j.detail)) msg = j.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join('; ');
+        j = await r.json();
+        const d = (j as { detail?: unknown }).detail;
+        if (typeof d === 'string') msg = d;
+        else if (Array.isArray(d)) msg = d.map((x: { msg?: string }) => x.msg).filter(Boolean).join('; ');
       } catch { /* not JSON */ }
-      throw new ApiError(r.status, msg);
+      throw new ApiError(r.status, msg, j);
     }
     return r.json() as Promise<T>;
   }
@@ -106,7 +109,13 @@ export class ApiClient {
     const { actuator_id, ...body } = c;
     return this.request<Ack>('POST', `/actuator/${actuator_id}/command`, body, true, 20_000);
   }
-  setStage(gid: string, stage_id: string) { return this.request<{ stage_id: string }>('PUT', `/greenhouse/${gid}/stage`, { stage_id }); }
+  setStage(gid: string, stage_id: string, started_on?: string) {
+    return this.request<StageSchedule & { stage_id: string }>('PUT', `/greenhouse/${gid}/stage`, { stage_id, started_on });
+  }
+  stageSchedule(gid: string) { return this.request<StageSchedule>('GET', `/greenhouse/${gid}/stage`); }
+  putStageSchedule(gid: string, body: { mode?: 'auto' | 'manual'; days?: Record<string, number>; started_on?: string }) {
+    return this.request<StageSchedule>('PUT', `/greenhouse/${gid}/stage-schedule`, body);
+  }
   thresholds(stage: string) { return this.request<Threshold[]>('GET', `/thresholds/${stage}`); }
   putThresholds(stage: string, list: { parameter: string; min: number; max: number; deadband?: number }[]) {
     return this.request<Threshold[]>('PUT', `/thresholds/${stage}`, list);
@@ -140,6 +149,20 @@ export class ApiClient {
   patchUser(id: number, patch: Partial<{ name: string; role: 'admin' | 'viewer'; active: boolean; password: string }>) {
     return this.request<UserItem>('PATCH', `/users/${id}`, patch);
   }
+  // cloud server (required) and network settings (greenhouse display)
+  cloud() { return this.request<CloudState>('GET', '/cloud'); }
+  cloudTest(body: { url?: string; token?: string }) { return this.request<CloudTest>('POST', '/cloud/test', body, true, 25_000); }
+  cloudSetup(body: { url: string; token: string; force?: boolean }) {
+    return this.request<CloudState & { test: CloudTest }>('PUT', '/cloud', body, true, 25_000);
+  }
+  network() { return this.request<NetworkStatus>('GET', '/network', undefined, true, 25_000); }
+  wifiScan() { return this.request<WifiNetwork[]>('GET', '/network/wifi', undefined, true, 35_000); }
+  wifiSet(body: { profile: 'magso' | 'router'; ssid: string; password: string }) {
+    return this.request<{ ok: boolean; connected?: boolean; message: string }>('POST', '/network/wifi', body, true, 80_000);
+  }
+  wifiForget(profile: 'magso' | 'router') { return this.request<{ ok: boolean; message: string }>('DELETE', `/network/wifi/${profile}`); }
+  hotspot() { return this.request<{ ok: boolean; message: string }>('POST', '/network/hotspot', undefined, true, 50_000); }
+
   simFault(f: { kind: string; sensor_id?: string; node_id?: string; value?: number; attr?: string }) {
     return this.request<{ ok: boolean }>('POST', '/sim/fault', f);
   }

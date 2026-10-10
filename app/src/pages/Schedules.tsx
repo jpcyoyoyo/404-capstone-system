@@ -3,6 +3,7 @@ import { IonPage, IonContent, IonSegment, IonSegmentButton, IonLabel, IonButton,
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import PresetCard from '../components/PresetCard';
+import StageScheduleCard from '../components/StageScheduleCard';
 import { SHOWN_ACTIONS, describeChange } from '../providers/presets';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -81,7 +82,9 @@ const Schedules: React.FC = () => {
     const st = gh.meta.stages.find(s => s.id === view);
     alert({
       header: `Switch to ${st?.name}?`,
-      message: `Irrigation will use the ${st?.irrigation_mode} circuit and these thresholds from the next control cycle.`,
+      message: `Irrigation will use the ${st?.irrigation_mode} circuit and these thresholds from the next control cycle. `
+        + `The day count restarts today (day 1 of ${gh.stageSchedule?.days[view] ?? '?'})`
+        + (gh.stageSchedule?.mode === 'auto' ? '; the following stages still change on their own.' : '.'),
       buttons: [{ text: 'Cancel', role: 'cancel' }, {
         text: 'Switch', handler: () => {
           gh.setActiveStage(view)
@@ -107,6 +110,8 @@ const Schedules: React.FC = () => {
         <StatusBanner />
         <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--sg-text)', marginBottom: 10 }}>Thresholds</div>
 
+        <StageScheduleCard canEdit={canEdit} />
+
         <PresetCard canEdit={canEdit} hasUnsaved={edited.length > 0} onChanged={load} />
 
         <IonSegment value={view} onIonChange={e => setView(String(e.detail.value))} style={{ marginBottom: 10 }}>
@@ -120,7 +125,7 @@ const Schedules: React.FC = () => {
           <span style={{ fontSize: 12, color: 'var(--sg-muted)' }}>
             {view === gh.activeStageId ? 'This is the active stage.' : 'Viewing a stage that is not active.'}
           </span>
-          {view !== gh.activeStageId && isAdmin && <IonButton size="small" onClick={makeActive} disabled={!gh.canCommand && gh.mode === 'live'}>Make active</IonButton>}
+          {view !== gh.activeStageId && isAdmin && <IonButton size="small" onClick={makeActive} disabled={!canEdit}>Make active</IonButton>}
         </div>
 
         {edited.length > 0 && (

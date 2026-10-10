@@ -21,8 +21,10 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
 - `src/api/client.ts` — REST client, 401 → refresh once → retry.
 - `src/providers/types.ts` — the `GreenhouseData` contract both providers implement: raw `readings`
   per sensor, `zones` summaries, derived `metrics` (status vs. the active stage's thresholds),
-  `actuators`, `openAlerts`, `activePreset`, `sendCommand()`, `setActiveStage()`, and `data` (everything
-  fetched on demand: history, thresholds, plant presets, alerts, logs, reports, calibration, users).
+  `actuators`, `openAlerts`, `activePreset`, `stageSchedule`, `sendCommand()`, `setActiveStage()`,
+  `setStageSchedule()`, and `data` (everything fetched on demand: history, thresholds, plant presets, alerts,
+  logs, reports, calibration, users, cloud server).
+- `src/providers/stageSchedule.ts` — growth-stage day arithmetic, same rules as `controller/greenhouse/stages.py`.
 - `src/providers/metrics.ts` — same aggregation as the controller: median of VALID readings per
   zone, mean of the zone medians. Failed reads are `null`, never 0.
 - `src/simulation/demoEngine.ts` — in-app stand-in for the controller (same shapes, same audit
@@ -45,7 +47,8 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
 
 ## Routes
 
-`/login`, `/quick-setup`, `/kiosk` (no sign-in; `?demo=1`, `?token=`, `?api=`), and under `/tabs`:
+`/login`, `/quick-setup`, `/kiosk` (no sign-in; `?demo=1`, `?token=`, `?api=`; N opens the Network panel,
+whose Wi-Fi and cloud set-up need an administrator sign-in held in memory only), and under `/tabs`:
 dashboard, live-monitor, live-monitor/metric/:id, controls, fertigation, schedules (thresholds),
 records, alerts, alert-detail/:id, calibration, settings, app-settings, profile, more, energy
 (hidden unless `capabilities.energy`).

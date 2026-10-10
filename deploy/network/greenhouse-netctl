@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""greenhouse-netctl — the only network command the greenhouse API may run as root.
+
+Installed as /usr/local/sbin/greenhouse-netctl (root:root 0755) by deploy/pi-setup.sh, with the
+sudoers rule deploy/network/greenhouse-netctl.sudoers. Prints JSON on stdout.
+
+  greenhouse-netctl status            current mode, Wi-Fi, addresses, internet, saved profiles
+  greenhouse-netctl scan              Wi-Fi networks in range
+  greenhouse-netctl set magso|router  stdin: {"ssid": "...", "password": "..."}; saves and connects
+  greenhouse-netctl forget magso|router
+  greenhouse-netctl hotspot           start the controller's own hotspot now
+
+Profiles are written as NetworkManager keyfiles (mode 0600) so the Wi-Fi password never appears
+on a command line, and /etc/greenhouse/network.conf is updated to match, so re-running
+setup-network.sh keeps what was set from the display or the app.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+CONF = "/etc/greenhouse/network.conf"
+KEYDIR = "/etc/NetworkManager/system-connections"
+STATE = "/run/greenhouse/network_mode"
+NAMES = {"magso": "greenhouse-magso", "router": "greenhouse-router"}
+PRIORITY = {"magso": 20, "router": 10}
+CONF_KEYS = {"magso": ("MAGSO_SSID", "MAGSO_PSK"), "router": ("ROUTER_SSID", "ROUTER_PSK")}
+
+
+def die(msg, code=1):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def nm(*args, timeout=30, check=False):
+    p = subprocess.run(["nmcli", *args], capture_output=True, text=True, timeout=timeout)
+    if check and p.returncode != 0:
+        die((p.stderr or p.stdout).strip() or f"nmcli {' '.join(args)} failed")
+    return p
+
+
+def terse(*args):
+    """nmcli -t output split on unescaped colons."""
+    out = nm("-t", *args).stdout
+    rows = []
+    for line in out.splitlines():
+        rows.append([f.replace("\\:", ":").replace("\\\\", "\\") for f in re.split(r"(?<!\\):", line)])
+    return rows
+
+
+def conf():
+    vals = {}
+    try:
+        with open(CONF, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r'^\s*([A-Z_]+)="?(.*?)"?\s*$', line)
+                if m:
+                    vals[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return vals
+
+
+def conf_set(updates):
+    try:
+        with open(CONF, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        lines = []
+    done = set()
+    for i, line in enumerate(lines):
+        m = re.match(r"^\s*([A-Z_]+)=", line)
+        if m and m.group(1) in updates:
+            lines[i] = f'{m.group(1)}="{updates[m.group(1)]}"'
+            done.add(m.group(1))
+    lines += [f'{k}="{v}"' for k, v in updates.items() if k not in done]
+    tmp = CONF + ".tmp"
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.replace(tmp, CONF)
+
+
+def kf(v):
+    """Escape a value for a GKeyFile (NetworkManager keyfile)."""
+    v = v.replace("\\", "\\\\")
+    return "\\s" + v[1:] if v.startswith(" ") else v
+
+
+def mode():
+    try:
+        with open(STATE, encoding="utf-8") as f:
+            return f.read().strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+def status():
+    iface = conf().get("IFACE", "wlan0")
+    wifi = None
+    for row in terse("-f", "IN-USE,SSID,SIGNAL", "device", "wifi", "list", "--rescan", "no"):
+        if len(row) >= 3 and row[0] == "*":
+            wifi = {"ssid": row[1], "signal": int(row[2] or 0)}
+    active = [r[0] for r in terse("-f", "NAME", "connection", "show", "--active")]
+    if wifi is not None:
+        wifi["profile"] = next((k for k, n in NAMES.items() if n in active), "hotspot" if "greenhouse-hotspot" in active else None)
+    addrs = {}
+    for dev in (iface, "eth0"):
+        rows = terse("-g", "IP4.ADDRESS", "device", "show", dev)
+        if rows and rows[0] and rows[0][0]:
+            addrs[dev] = rows[0][0].split("|")[0].strip()
+    gw = terse("-g", "IP4.GATEWAY", "device", "show", iface)
+    conn = nm("networking", "connectivity", "check", timeout=15).stdout.strip()
+    c = conf()
+    profiles = {}
+    for k, n in NAMES.items():
+        p = nm("-g", "802-11-wireless.ssid", "connection", "show", n)
+        profiles[k] = p.stdout.strip() if p.returncode == 0 else None
+    return {"mode": mode(), "simulated": False, "wifi": wifi, "addresses": addrs,
+            "gateway": (gw[0][0] if gw and gw[0] and gw[0][0] else None), "internet": conn == "full",
+            "connectivity": conn, "hotspot": {"ssid": c.get("HOTSPOT_SSID"), "address": "10.42.0.1"},
+            "profiles": profiles, "hostname": os.uname().nodename}
+
+
+def scan():
+    seen = {}
+    for row in terse("-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes"):
+        if len(row) < 4 or not row[1]:
+            continue
+        ssid = row[1]
+        item = {"ssid": ssid, "signal": int(row[2] or 0), "security": row[3] or "open", "in_use": row[0] == "*"}
+        if ssid not in seen or item["signal"] > seen[ssid]["signal"]:
+            seen[ssid] = item
+    return sorted(seen.values(), key=lambda x: (-x["in_use"], -x["signal"]))
+
+
+def set_profile(profile):
+    try:
+        body = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        die("bad input")
+    ssid, psk = str(body.get("ssid") or ""), str(body.get("password") or "")
+    if not ssid.strip() or len(ssid.encode()) > 32 or any(ord(ch) < 32 for ch in ssid):
+        die("the network name (SSID) must be 1 to 32 characters")
+    if psk and (not 8 <= len(psk) <= 63 or any(ord(ch) < 32 or ord(ch) > 126 for ch in psk)):
+        die("a Wi-Fi password is 8 to 63 ordinary characters")
+    c = conf()
+    name, iface = NAMES[profile], c.get("IFACE", "wlan0")
+    lines = ["[connection]", f"id={name}", "type=wifi", f"interface-name={iface}", "autoconnect=true",
+             f"autoconnect-priority={PRIORITY[profile]}", "", "[wifi]", "mode=infrastructure", f"ssid={kf(ssid)}", ""]
+    if psk:
+        lines += ["[wifi-security]", "key-mgmt=wpa-psk", f"psk={kf(psk)}", ""]
+    if profile == "router" and c.get("ROUTER_STATIC_IP") and c.get("ROUTER_GATEWAY"):
+        lines += ["[ipv4]", "method=manual", f"address1={c['ROUTER_STATIC_IP']},{c['ROUTER_GATEWAY']}",
+                  f"dns={c['ROUTER_GATEWAY']};", ""]
+    else:
+        lines += ["[ipv4]", "method=auto", ""]
+    lines += ["[ipv6]", "method=auto", ""]
+    nm("connection", "delete", name)   # replaced whole; fine if it did not exist
+    path = os.path.join(KEYDIR, f"{name}.nmconnection")
+    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    nm("connection", "reload", check=True)
+    k_ssid, k_psk = CONF_KEYS[profile]
+    conf_set({k_ssid: ssid.replace('"', ""), k_psk: psk.replace('"', "")})
+    # Join it now; if that fails, greenhouse-net falls back to the hotspot within a minute.
+    nm("connection", "down", "greenhouse-hotspot", timeout=20)
+    up = nm("--wait", "40", "connection", "up", name, timeout=60)
+    if up.returncode == 0:
+        time.sleep(2)
+        return {"ok": True, "connected": True, "message": f"Connected to {ssid}. The profile is saved and used after restarts."}
+    reason = (up.stderr or up.stdout).strip().splitlines()
+    return {"ok": True, "connected": False,
+            "message": f"Saved, but could not join {ssid} now ({reason[-1] if reason else 'no answer'}). Check the password and "
+                       "that the network is in range; the controller keeps trying and uses its hotspot meanwhile."}
+
+
+def forget(profile):
+    nm("connection", "delete", NAMES[profile])
+    k_ssid, k_psk = CONF_KEYS[profile]
+    conf_set({k_ssid: "", k_psk: ""})
+    return {"ok": True, "message": "Removed."}
+
+
+def hotspot():
+    p = nm("--wait", "30", "connection", "up", "greenhouse-hotspot", timeout=45)
+    if p.returncode != 0:
+        die("the hotspot did not start: " + (p.stderr or p.stdout).strip())
+    ssid = conf().get("HOTSPOT_SSID", "the hotspot")
+    return {"ok": True, "message": f"Hotspot {ssid} started. Join it and open http://10.42.0.1:8000."}
+
+
+def main():
+    if os.geteuid() != 0:
+        die("run as root (through sudo)")
+    args = sys.argv[1:]
+    if not args:
+        die(__doc__)
+    cmd = args[0]
+    if cmd == "status":
+        out = status()
+    elif cmd == "scan":
+        out = scan()
+    elif cmd in ("set", "forget") and len(args) == 2 and args[1] in NAMES:
+        out = set_profile(args[1]) if cmd == "set" else forget(args[1])
+    elif cmd == "hotspot":
+        out = hotspot()
+    else:
+        die("unknown command")
+    print(json.dumps(out))
+
+
+if __name__ == "__main__":
+    main()
