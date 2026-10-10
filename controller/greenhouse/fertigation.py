@@ -43,3 +43,30 @@ def fertigation_meta(fert: dict[str, Any]) -> dict[str, float]:
     """What the app needs to show doses and the bottle in grams of fertilizer (GET /greenhouse)."""
     return {"stock_g_per_kg": stock_g_per_kg(fert), "stock_reserve_g": reserve_g(fert),
             "dose_g": float(fert.get("dose_g", 20)), "tolerance_g": float(fert.get("tolerance_g", 0.5))}
+
+
+# Why a dose ended early, in plain words (alerts, the activity log and `ghctl hw dose`).
+# The app has the same wording in app/src/contract/codes.ts (DOSE_STOP).
+STOP_TEXT = {
+    "LOAD_CELL_FAULT": "the load cell under the stock bottle gave no reading (check the HX711 wires: DT, SCK, VCC, GND)",
+    "NO_FLOW": "the pump ran but the bottle did not get lighter (empty bottle, kinked tube or air in the line)",
+    "TIMEOUT": "it took longer than the time limit",
+    "INTERLOCK": "a safety lock came on (low reservoir, float switch or emergency stop)",
+    "STOPPED": "Stop dose was pressed",
+    "NO_DOSER": "the dosing pump is not set up on this controller",
+    "PUMP_ERROR": "the controller could not drive the pump (see the controller log)",
+}
+
+
+def stop_text(reason: str | None) -> str:
+    if not reason:
+        return "it was stopped"
+    return STOP_TEXT.get(reason, reason.replace("_", " ").lower())
+
+
+def outcome_text(target_g: float, delivered_g: float, status: str, reason: str | None) -> str:
+    """One sentence on how a dose ended, in grams of fertilizer."""
+    if status == "complete":
+        return f"Dose of {target_g:g} g complete: {delivered_g:g} g delivered."
+    got = "with nothing delivered" if delivered_g <= 0 else f"after {delivered_g:g} of {target_g:g} g"
+    return f"Dose of {target_g:g} g stopped {got}: {stop_text(reason)}."
