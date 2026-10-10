@@ -70,11 +70,11 @@ const DeviceTile: React.FC<{ id: string }> = ({ id }) => {
 const AlertRow: React.FC<{ a: AlertItem }> = ({ a }) => {
   const c = SEV_COLOR[a.severity] ?? '#94a3b8';
   return (
-    <div style={{ display: 'flex', gap: '0.8vw', alignItems: 'stretch', padding: '0.6vh 0', borderBottom: '1px solid var(--sg-border)' }}>
+    <div style={{ display: 'flex', gap: '0.8vw', alignItems: 'stretch', padding: '0.6vh 0', borderBottom: '1px solid var(--sg-border)', minWidth: 0 }}>
       <div style={{ width: 4, borderRadius: 2, background: c, flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="sg-row-between" style={{ gap: 8 }}>
-          <span style={{ fontSize: fz(14), fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <span style={{ fontSize: fz(14), fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
             <span style={{ fontSize: fz(10), fontWeight: 800, color: c, border: `1px solid ${c}`, borderRadius: 4, padding: '0 5px', marginRight: 6, verticalAlign: 'middle' }}>
               {a.severity.toUpperCase()}
             </span>
@@ -162,7 +162,7 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5vw', flex: 1 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '1.5vw', flex: 1 }}>
         {TILES.map(k => {
           const m = gh.metrics[k];
           const c = statusColor(m.status);
@@ -183,15 +183,17 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
         })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: '1.5vw' }}>
-        <div className="sg-card" style={{ margin: 0 }} data-testid="kiosk-devices">
+      {/* minmax(0, …): long one-line alert messages must shorten with "…", not widen their column
+          and squeeze Devices (seen on the Pi, 10 Oct) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)', gap: '1.5vw' }}>
+        <div className="sg-card" style={{ margin: 0, minWidth: 0 }} data-testid="kiosk-devices">
           <div className="sg-row-between" style={{ marginBottom: '1vh' }}>
             <span style={{ fontSize: fz(14), fontWeight: 700, color: 'var(--sg-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>Devices</span>
             <span style={{ fontSize: fz(12), color: 'var(--sg-muted)' }}>
               <b style={{ color: onCount ? '#22c55e' : 'var(--sg-muted)' }}>{onCount} on</b>{manualCount ? <> · <b style={{ color: '#f59e0b' }}>{manualCount} manual</b></> : ''}
             </span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8vw' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.8vw' }}>
             {DEVICES.map(id => <DeviceTile key={id} id={id} />)}
           </div>
           <div className="sg-row" style={{ gap: '0.6vw', marginTop: '1vh', flexWrap: 'wrap' }}>
@@ -204,14 +206,14 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
           </div>
         </div>
 
-        <div className="sg-card" style={{ margin: 0, display: 'flex', flexDirection: 'column' }} data-testid="kiosk-alerts">
-          <div className="sg-row-between" style={{ marginBottom: '0.6vh' }}>
-            <span style={{ fontSize: fz(14), fontWeight: 700, color: 'var(--sg-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+        <div className="sg-card" style={{ margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }} data-testid="kiosk-alerts">
+          <div className="sg-row-between" style={{ marginBottom: '0.6vh', gap: 8 }}>
+            <span style={{ fontSize: fz(14), fontWeight: 700, color: 'var(--sg-muted)', letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0 }}>
               Open alerts {alerts.length > 0 && <span style={{ marginLeft: 6, padding: '0 8px', borderRadius: 999, background: SEV_COLOR[alerts[0].severity], color: '#fff', fontSize: fz(12) }}>{alerts.length}</span>}
             </span>
-            <span className="sg-row" style={{ gap: 6 }}>
+            <span className="sg-row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
               {(['critical', 'high', 'medium', 'low'] as const).filter(sv => sevCount[sv]).map(sv => (
-                <span key={sv} style={{ fontSize: fz(11), color: SEV_COLOR[sv], border: `1px solid ${SEV_COLOR[sv]}`, borderRadius: 999, padding: '0 7px' }}>{sevCount[sv]} {sv}</span>
+                <span key={sv} style={{ fontSize: fz(11), color: SEV_COLOR[sv], border: `1px solid ${SEV_COLOR[sv]}`, borderRadius: 999, padding: '0 7px', whiteSpace: 'nowrap' }}>{sevCount[sv]} {sv}</span>
               ))}
             </span>
           </div>
