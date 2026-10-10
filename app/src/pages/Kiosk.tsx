@@ -17,7 +17,7 @@ import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { formatMetric, METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
 import { METRIC_ICON, ACTUATOR_ICON, statusColor } from '../components/display';
-import { alertTitle, reasonText } from '../contract/codes';
+import { alertTitle, LOCK_SHORT, reasonText } from '../contract/codes';
 import { fmtTime, timeAgo, untilText } from '../components/format';
 import { scheduleLine } from '../providers/stageSchedule';
 import KioskNetwork from '../components/KioskNetwork';
@@ -36,12 +36,14 @@ const DeviceTile: React.FC<{ id: string }> = ({ id }) => {
   const def = gh.meta.actuators.find(a => a.id === id);
   const st = gh.actuators[id];
   if (!def) return null;
-  const locked = def.installed && !!st?.lockout && st.lockout !== 'NOT_INSTALLED';
-  const on = !!st?.on && def.installed;
+  const dosing = st?.lockout === 'DOSING';   // a dose in progress, not a fault
+  const locked = def.installed && !!st?.lockout && st.lockout !== 'NOT_INSTALLED' && !dosing;
+  const on = (!!st?.on || dosing) && def.installed;
   const color = !def.installed ? '#64748b' : locked ? '#ef4444' : on ? '#22c55e' : '#94a3b8';
-  const badge = !def.installed ? 'N/A' : locked ? 'LOCKED' : on ? 'ON' : 'OFF';
+  const badge = !def.installed ? 'N/A' : locked ? 'LOCKED' : dosing ? 'DOSING' : on ? 'ON' : 'OFF';
   const detail = !def.installed ? 'Not installed'
-    : locked ? reasonText(st?.lockout, st?.lockout ?? '')
+    : dosing ? 'Dosing fertilizer'
+    : locked ? (LOCK_SHORT[st?.lockout ?? ''] ?? reasonText(st?.lockout))
     : st?.mode === 'MANUAL' ? `Manual · ${st.manual_until ? untilText(st.manual_until) : 'held'}`
     : `Automatic${st?.since ? ` · since ${fmtTime(st.since)}` : ''}`;
   const circuit = id === 'irrigation' ? (on ? st?.circuit : st?.stage_circuit) : null;

@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .. import fertigation as F
+from .. import messages as M
 from ..registry import Registry
 from ..timeutil import local_time_of
 from . import guard as G
@@ -176,8 +177,8 @@ class ControlEngine:
             return True, None, None
         avail = F.available_fertilizer_g(stock, fert)
         if grams > avail:
-            return False, "STOCK_LOW", (f"the bottle holds about {avail:.0f} g of fertilizer above its reserve "
-                                        f"({stock:.0f} g of solution); refill it before dosing {grams:g} g")
+            return False, "STOCK_LOW", (f"about {avail:.0f} g of fertilizer is usable ({stock:.0f} g of solution "
+                                        f"on the scale), {grams:g} g asked")
         return True, None, None
 
     # ── manual overrides ─────────────────────────────────────────────────
@@ -225,10 +226,12 @@ class ControlEngine:
         res.lockouts = lock
         if lock.get("pump") == "LOW_WATER":
             res.alerts.append(AlertSignal("pump:low_water", "critical", "reservoir", "LOW_WATER",
-                                          "Reservoir below minimum — all pump requests refused"))
+                                          "Reservoir water is below the minimum level, so the pressure washer and the "
+                                          "valves will not run. Refill the reservoir; watering resumes by itself."))
         elif lock.get("pump") == "FLOAT_SWITCH_FAULT" and (now - self.started_at).total_seconds() > self._stale_after(self.cycle_s):
             res.alerts.append(AlertSignal("pump:float_fault", "high", "float_01", "FLOAT_SWITCH_FAULT",
-                                          "Float switch reading unavailable — pump locked out (fail-safe)"))
+                                          "The float switch gives no reading, so the pressure washer is locked off to be "
+                                          "safe. Check the float switch and its wire (GPIO19)."))
 
         # 5  requests
         reqs = self._requests(now, params, lock)
@@ -271,17 +274,17 @@ class ControlEngine:
             if r is None:
                 if grace:
                     out.append(AlertSignal(f"sensor:{sd.id}:stale", "medium", sd.id, "SENSOR_STALE",
-                                           f"{sd.id}: no reading received"))
+                                           M.sensor_stale(sd)))
                 continue
             if r.quality == "INVALID":
                 out.append(AlertSignal(f"sensor:{sd.id}:invalid", "low", sd.id, "SENSOR_INVALID",
-                                       f"{sd.id}: implausible or failed reading — excluded from the zone median"))
+                                       M.sensor_invalid(sd)))
             elif r.quality == "STALE":
                 out.append(AlertSignal(f"sensor:{sd.id}:stale", "medium", sd.id, "SENSOR_STALE",
-                                       f"{sd.id}: no reading for {self.cfg.get('stale_after_cycles', 3)} cycles"))
+                                       M.sensor_stale(sd, int(self.cfg.get('stale_after_cycles', 3)))))
             elif r.quality == "UNCALIBRATED":
                 out.append(AlertSignal(f"sensor:{sd.id}:uncalibrated", "low", sd.id, "SENSOR_UNCALIBRATED",
-                                       f"{sd.id}: needs calibration before it is used for control"))
+                                       M.sensor_uncalibrated(sd)))
         if self.reg.has_actuator("doser") and self.reg.actuator("doser").installed:
             stock = self.stock_solution_g(eff)
             fert = self.cfg.get("fertigation", {})
@@ -294,8 +297,9 @@ class ControlEngine:
         for t, ps in params.items():
             for z in ps.manual_required_zones:
                 out.append(AlertSignal(f"zone:{z}:{t}:manual_required", "high", f"zone_{z}", "ZONE_MANUAL_REQUIRED",
-                                       f"Zone {z}: most {t.replace('_', ' ')} sensors faulted — automatic control "
-                                       f"for this parameter suspended in the zone (MANUAL_REQUIRED)"))
+                                       f"Zone {z}: most {t.replace('_', ' ')} sensors are faulty, so automatic "
+                                       f"{t.replace('_', ' ')} control is paused in this zone. Watch it by eye and fix "
+                                       f"the sensors."))
         for node, online in self.node_online.items():
             if not online:
                 out.append(AlertSignal(f"node:{node}:offline", "high", node, "NODE_OFFLINE",
@@ -322,7 +326,7 @@ class ControlEngine:
                                     f"operator {m['by']} ({'ON' if m['on'] else 'OFF'})",
                                     circuit=m["circuit"], cmd_id=m["cmd"]))
             if lock.get("pump") in ("LOW_WATER", "FLOAT_SWITCH_FAULT"):
-                reqs.append(Request("irrigation", False, RULE_SAFETY, "reservoir", f"pump interlock: {lock['pump']}"))
+                reqs.append(Request("irrigation", False, RULE_SAFETY, "reservoir", f"safety lock: {M.LOCK_WORD.get(lock['pump'], lock['pump'])}"))
 
         # Ventilation
         fan = self.state.get("fan_exhaust")
@@ -384,7 +388,7 @@ class ControlEngine:
         if "pump" in t:
             on, reason, s, bypass, cmd = t["pump"]
             if on and lock.get("pump"):
-                t["pump"] = (False, f"pump interlock: {lock['pump']}", "safety", True, cmd)
+                t["pump"] = (False, f"safety lock: {M.LOCK_WORD.get(lock['pump'], lock['pump'])}", "safety", True, cmd)
             elif on and not any(t.get(v, (self.state[v].on,))[0] for v in valves.values() if v in self.state):
                 t["pump"] = (False, "no irrigation valve open", "safety", True, cmd)
         # Maximum continuous run (flood protection)
@@ -394,7 +398,8 @@ class ControlEngine:
                 t[a.id] = (False, f"maximum continuous run {a.max_run_s // 60} min reached", "safety", True, None)
                 G.start_cooldown(st, now, max(a.min_off_s, 600))
                 res.alerts.append(AlertSignal(f"{a.id}:max_run:{now.isoformat()}", "high", a.id, "MAX_RUN_EXCEEDED",
-                                              f"{a.name} forced off after {a.max_run_s // 60} min; cooldown enforced",
+                                              f"{a.name} was stopped after running {a.max_run_s // 60} min, its maximum. "
+                                              f"It can run again after a {max(a.min_off_s, 600) // 60} min cooldown.",
                                               kind="event"))
                 if a.id == "pump" and self.irrigation_manual:
                     self.irrigation_manual = None
@@ -455,16 +460,17 @@ class ControlEngine:
         expiry = float(self.cfg.get("command_expiry_s", 60))
         age = (now - cmd.issued_at).total_seconds()
         if age > expiry:
-            return CommandResult("EXPIRED", "EXPIRED", f"command is {age:.0f} s old (limit {expiry:.0f} s)")
+            return CommandResult("EXPIRED", "EXPIRED", M.refusal(self._name(cmd.actuator_id), cmd.action, "EXPIRED",
+                                                                   detail=f"it was {age:.0f} s old, limit {expiry:.0f} s"))
         aid = cmd.actuator_id
         if not self.reg.has_actuator(aid):
-            return CommandResult("REJECTED", "UNKNOWN_ACTUATOR", f"no actuator '{aid}'")
+            return CommandResult("REJECTED", "UNKNOWN_ACTUATOR", M.refusal(aid, cmd.action, "UNKNOWN_ACTUATOR"))
         adef = self.reg.actuator(aid)
         eff = self.effective_readings(now)
         params = aggregate(self.reg, eff, PARAM_TYPES)
         lock = self.lockouts(eff, params)
         if not adef.virtual and lock.get(aid) == "NOT_INSTALLED":
-            return CommandResult("REJECTED", "NOT_INSTALLED", f"{adef.name} is not installed")
+            return CommandResult("REJECTED", "NOT_INSTALLED", M.refusal(adef.name, cmd.action, "NOT_INSTALLED"))
 
         if cmd.action == "AUTO":
             if aid == "irrigation":
@@ -472,34 +478,35 @@ class ControlEngine:
             else:
                 st = self.state[aid]
                 st.mode, st.manual_on, st.manual_until, st.manual_cmd = "AUTO", None, None, None
-            return CommandResult("ACCEPTED", None, f"{adef.name} returned to automatic control")
+            return CommandResult("ACCEPTED", None, f"{adef.name} returned to automatic control.")
 
         if cmd.action == "DOSE":
             if aid != "doser":
-                return CommandResult("REJECTED", "BAD_ACTION", "DOSE applies to the dosing pump only")
+                return CommandResult("REJECTED", "BAD_ACTION", M.refusal(adef.name, "DOSE", "BAD_ACTION", detail="only the dosing pump doses"))
             g = cmd.target_g or 0
             if not 0 < g <= 200:
-                return CommandResult("REJECTED", "BAD_TARGET", "target must be between 0 and 200 g of fertilizer")
+                return CommandResult("REJECTED", "BAD_TARGET", M.refusal(adef.name, "DOSE", "BAD_TARGET"))
             if self.dosing:
-                return CommandResult("REJECTED", "DOSING", "a dose is already in progress")
+                return CommandResult("REJECTED", "DOSING", M.refusal(adef.name, "DOSE", "DOSING"))
             ok, why = fertigation_gate(params.get("soil_moisture"), params.get("ec"), self.bands)
             if not ok:
                 reason, _, msg = (why or "FERTIGATION_GATED").partition(": ")
-                return CommandResult("REJECTED", reason, msg or why)
+                return CommandResult("REJECTED", reason, M.refusal(adef.name, "DOSE", reason, detail=msg or None))
             ok, reason, msg = self._stock_check(eff, g)
             if not ok:
-                return CommandResult("REJECTED", reason, msg)
+                return CommandResult("REJECTED", reason, M.refusal(adef.name, "DOSE", reason, detail=msg))
             self.dosing = True
             self.dose_stop_requested = False
-            return CommandResult("ACCEPTED", None, f"dosing {g:g} g", dose_g=g)
+            return CommandResult("ACCEPTED", None, f"Dosing {g:g} g of fertilizer.", dose_g=g)
 
         if cmd.action not in ("ON", "OFF"):
-            return CommandResult("REJECTED", "BAD_ACTION", f"unknown action {cmd.action}")
+            return CommandResult("REJECTED", "BAD_ACTION", M.refusal(adef.name, cmd.action, "BAD_ACTION", detail=f"unknown action {cmd.action}"))
         if aid == "doser" and cmd.action == "OFF" and self.dosing:
             self.dose_stop_requested = True
-            return CommandResult("ACCEPTED", None, "stopping the dose")
+            return CommandResult("ACCEPTED", None, "Stopping the dose.")
         if adef.kind == "dosing_pump" and cmd.action == "ON":
-            return CommandResult("REJECTED", "BAD_ACTION", "the dosing pump only runs inside a weighed dose — use DOSE")
+            return CommandResult("REJECTED", "BAD_ACTION", M.refusal(adef.name, "ON", "BAD_ACTION",
+                                                                     detail="it only runs inside a weighed dose: use Dose on the Nutrients screen"))
         on = cmd.action == "ON"
         cap = self._manual_cap(adef.water)
         duration = min(float(cmd.duration_s or cap), cap)
@@ -510,33 +517,38 @@ class ControlEngine:
             valves = self._valves()
             if on:
                 if circuit not in valves:
-                    return CommandResult("REJECTED", "UNKNOWN_CIRCUIT", f"no valve for circuit '{circuit}'")
+                    return CommandResult("REJECTED", "UNKNOWN_CIRCUIT", M.refusal("Irrigation", "ON", "UNKNOWN_CIRCUIT", detail=str(circuit)))
                 if lock.get(valves[circuit]) == "NOT_INSTALLED":
-                    return CommandResult("REJECTED", "NOT_INSTALLED", f"{circuit} valve not installed")
+                    return CommandResult("REJECTED", "NOT_INSTALLED", M.refusal("Irrigation", "ON", "NOT_INSTALLED", detail=f"{circuit} valve"))
                 if lock.get("pump"):
-                    return CommandResult("REJECTED", lock["pump"], f"pump interlock: {lock['pump']}")
+                    return CommandResult("REJECTED", lock["pump"], M.refusal("Irrigation", "ON", lock["pump"]))
                 ok, why, retry = G.check(self.reg.actuator("pump"), self.state["pump"], True, now)
                 if not ok:
-                    return CommandResult("REJECTED", why, f"pump available again in {retry:.0f} s")
+                    return CommandResult("REJECTED", why, M.refusal("Irrigation", "ON", why, retry, detail="the pressure washer"))
             self.irrigation_manual = {"on": on, "circuit": circuit, "until": until, "cmd": cmd.cmd_id, "by": cmd.issued_by}
             return CommandResult("ACCEPTED", None,
-                                 f"irrigation {'ON' if on else 'OFF'} ({circuit}) for {duration / 60:.0f} min")
+                                 (f"Irrigation on ({circuit} circuit) for {M.wait_text(duration)}" if on
+                                  else f"Irrigation held off for {M.wait_text(duration)}") + ", then back to automatic.")
 
         st = self.state[aid]
         if on and aid == "pump":
             if lock.get("pump"):
-                return CommandResult("REJECTED", lock["pump"], f"pump interlock: {lock['pump']}")
+                return CommandResult("REJECTED", lock["pump"], M.refusal(adef.name, "ON", lock["pump"]))
             if not any(self.state[v].on for v in self._valves().values() if v in self.state):
-                return CommandResult("REJECTED", "NO_OPEN_VALVE", "open an irrigation valve before starting the pump")
+                return CommandResult("REJECTED", "NO_OPEN_VALVE", M.refusal(adef.name, "ON", "NO_OPEN_VALVE"))
         if on and adef.circuit:
             other = [v for c, v in self._valves().items() if c != adef.circuit and v in self.state and self.state[v].on]
             if other:
-                return CommandResult("REJECTED", "PUMP_BUSY", f"{other[0]} is open — one irrigation circuit at a time")
+                return CommandResult("REJECTED", "PUMP_BUSY", M.refusal(adef.name, "ON", "PUMP_BUSY", detail=f"{self._name(other[0])} is open"))
         ok, why, retry = G.check(adef, st, on, now)
         if not ok:
-            return CommandResult("REJECTED", why, f"retry in {retry:.0f} s" if retry else None)
+            return CommandResult("REJECTED", why, M.refusal(adef.name, cmd.action, why, retry))
         st.mode, st.manual_on, st.manual_until, st.manual_cmd, st.manual_by = "MANUAL", on, until, cmd.cmd_id, cmd.issued_by
-        return CommandResult("ACCEPTED", None, f"{adef.name} {'ON' if on else 'OFF'} for {duration / 60:.0f} min (manual)")
+        return CommandResult("ACCEPTED", None,
+                             f"{adef.name} {'on' if on else 'held off'} for {M.wait_text(duration)}, then back to automatic.")
+
+    def _name(self, aid: str) -> str:
+        return self.reg.actuator(aid).name if self.reg.has_actuator(aid) else aid
 
     def estop(self, now: datetime, by: str) -> list[Change]:
         """Emergency stop: everything off now (timers bypassed) and held off manually for 30 min,

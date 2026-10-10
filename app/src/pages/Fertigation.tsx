@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { IonPage, IonContent, IonButton, IonIcon, IonSpinner, useIonAlert } from '@ionic/react';
+import { IonPage, IonContent, IonButton, IonIcon, IonSpinner, useIonAlert, useIonViewWillEnter } from '@ionic/react';
 import { flaskOutline, waterOutline, scaleOutline, checkmarkCircle, closeCircle } from 'ionicons/icons';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
@@ -8,6 +8,7 @@ import { useCommand } from '../components/useCommand';
 import { formatMetric } from '../providers/metrics';
 import { statusColor } from '../components/display';
 import { fmtDateTime } from '../components/format';
+import { doseStop, reasonText } from '../contract/codes';
 import type { FertilizerReport } from '../contract/types';
 
 const PRESETS = [5, 10, 20, 30];
@@ -28,23 +29,32 @@ const Fertigation: React.FC = () => {
   const fert = gh.meta.control.fertigation ?? FERT_DEFAULTS;
   const level = gh.metrics.water_level;
   const ph = gh.metrics.ph;
-  const dosing = !!doser?.on;
+  // The controller pulses the pump inside a dose and reports the dose as the DOSING lock, not as "on".
+  const dosing = !!doser?.on || doser?.lockout === 'DOSING';
   // Grams of fertilizer still in the bottle above the reserve the pump cannot reach.
   const available = stock.value !== null ? Math.max(0, (stock.value - fert.stock_reserve_g) * fert.stock_g_per_kg / 1000) : null;
 
-  const load = useCallback(() => {
-    setLoading(true);
-    gh.data.fertilizer(30).then(setReport).catch(() => setReport(null)).finally(() => setLoading(false));
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setLoading(true);
+    gh.data.fertilizer(30).then(setReport).catch(() => { if (!quiet) setReport(null); }).finally(() => setLoading(false));
   }, [gh.data]);
   useEffect(() => { load(); }, [load]);
+  useIonViewWillEnter(() => { load(); });
+  // A stopped dose raises an alert; reload the list then too, so the stop shows without leaving the page.
+  const alertCount = gh.openAlerts.length;
+  useEffect(() => { const id = setTimeout(() => load(true), 800); return () => clearTimeout(id); }, [alertCount, load]);
+  // And every 15 s, quietly, in case a dose ended between status updates.
+  useEffect(() => { const id = setInterval(() => load(true), 15000); return () => clearInterval(id); }, [load]);
   // Reload the history when a dose finishes.
   const [wasDosing, setWasDosing] = useState(dosing);
-  useEffect(() => { if (wasDosing && !dosing) setTimeout(load, 800); setWasDosing(dosing); }, [dosing, wasDosing, load]);
+  useEffect(() => { if (wasDosing && !dosing) setTimeout(() => load(true), 800); setWasDosing(dosing); }, [dosing, wasDosing, load]);
 
   const g = Number(target);
   const solution = Number.isFinite(g) ? Math.round(g * 1000 / fert.stock_g_per_kg) : 0;
   const enough = available === null || g <= available;
-  const valid = Number.isFinite(g) && g > 0 && g <= 200 && enough;
+  // No weight from the load cell: a dose could not be measured, so it is not offered.
+  const loadCellDown = !!doserDef?.installed && stock.value === null;
+  const valid = Number.isFinite(g) && g > 0 && g <= 200 && enough && !loadCellDown;
 
   const dose = () => {
     alert({
@@ -126,6 +136,11 @@ const Fertigation: React.FC = () => {
             <IonButton size="small" fill="outline" color="danger" style={{ marginTop: 10 }} disabled={!!blocked}
               onClick={() => send({ actuator_id: 'doser', action: 'OFF', duration_s: 60 })}>Stop dose</IonButton>
           )}
+          {loadCellDown && !dosing && (
+            <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 8, lineHeight: 1.45 }}>
+              {reasonText('LOAD_CELL_FAULT')} Dosing comes back when Live → Stock shows a weight again.
+            </div>
+          )}
           {!enough && !dosing && (
             <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 8 }}>Not enough stock for {g} g — mix a new batch and refill the bottle.</div>
           )}
@@ -140,7 +155,7 @@ const Fertigation: React.FC = () => {
           {report && (
             <div className="sg-row sg-gap-8" style={{ marginBottom: 10 }}>
               {[
-                { l: 'Doses', v: `${report.complete}/${report.count}` },
+                { l: 'Completed', v: `${report.complete} of ${report.count}` },
                 { l: 'Delivered', v: `${report.total_delivered_g} g` },
                 { l: 'Mean error', v: report.mean_abs_error_g !== null ? `±${report.mean_abs_error_g} g` : '—' },
               ].map(k => (
@@ -151,20 +166,35 @@ const Fertigation: React.FC = () => {
               ))}
             </div>
           )}
-          {report?.doses.length ? report.doses.slice(0, 15).map(d => (
-            <div key={d.id} className="sg-row-between" style={{ padding: '8px 0', borderTop: '1px solid var(--sg-border)' }}>
-              <div className="sg-row sg-gap-8">
-                <IonIcon icon={d.status === 'complete' ? checkmarkCircle : closeCircle} style={{ color: d.status === 'complete' ? '#22c55e' : '#ef4444' }} />
-                <div>
-                  <div style={{ fontSize: 13, color: 'var(--sg-text)' }}>{d.target_g} g target → {d.delivered_g ?? '—'} g</div>
-                  <div style={{ fontSize: 10, color: 'var(--sg-dim)' }}>{fmtDateTime(d.started_at)} · {d.issued_by}{d.reason ? ` · ${d.reason}` : ''}</div>
+          {report?.doses.length ? report.doses.slice(0, 15).map(d => {
+            const ok = d.status === 'complete';
+            const stop = ok ? null : doseStop(d.reason);
+            const got = d.delivered_g ?? 0;
+            return (
+              <div key={d.id} className="sg-row-between" style={{ padding: '8px 0', borderTop: '1px solid var(--sg-border)', alignItems: 'flex-start', gap: 8 }}>
+                <div className="sg-row sg-gap-8" style={{ alignItems: 'flex-start', minWidth: 0 }}>
+                  <IonIcon icon={ok ? checkmarkCircle : closeCircle} style={{ color: ok ? '#22c55e' : '#ef4444', flexShrink: 0, marginTop: 2 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--sg-text)' }}>
+                      {ok ? `${d.target_g} g target → ${d.delivered_g ?? '—'} g`
+                        : `${d.target_g} g dose stopped — ${got > 0 ? `${got} g delivered` : 'nothing delivered'}`}
+                    </div>
+                    {stop && (
+                      <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 2, lineHeight: 1.4 }}>
+                        <b>{stop.title}.</b> {stop.text}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: 'var(--sg-dim)', marginTop: 2 }}>{fmtDateTime(d.started_at)} · {d.issued_by}</div>
+                  </div>
                 </div>
+                {ok ? (
+                  <span style={{ fontSize: 12, flexShrink: 0, color: d.error_g !== null && Math.abs(d.error_g) > 1 ? '#f59e0b' : 'var(--sg-muted)' }}>
+                    {d.error_g !== null ? `${d.error_g > 0 ? '+' : ''}${d.error_g} g` : ''}
+                  </span>
+                ) : <span className="sg-pill sg-pill-crit" style={{ flexShrink: 0 }}>STOPPED</span>}
               </div>
-              <span style={{ fontSize: 12, color: d.error_g !== null && Math.abs(d.error_g) > 1 ? '#f59e0b' : 'var(--sg-muted)' }}>
-                {d.error_g !== null ? `${d.error_g > 0 ? '+' : ''}${d.error_g} g` : ''}
-              </span>
-            </div>
-          )) : !loading && <div style={{ fontSize: 12, color: 'var(--sg-dim)' }}>No doses recorded yet.</div>}
+            );
+          }) : !loading && <div style={{ fontSize: 12, color: 'var(--sg-dim)' }}>No doses recorded yet.</div>}
         </div>
       </IonContent>
     </IonPage>

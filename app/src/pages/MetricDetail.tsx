@@ -11,6 +11,7 @@ import type { MetricKey } from '../providers/types';
 import type { EventEntry, HistoryResult } from '../contract/types';
 import { statusColor, statusWord } from '../components/display';
 import { fmtDateTime } from '../components/format';
+import { eventAction, plainDetail } from '../contract/codes';
 
 const CHOICES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'water_temperature', 'stock_weight'];
 const RANGES = [
@@ -153,10 +154,10 @@ const MetricDetail: React.FC = () => {
             {events.slice(0, 8).map(e => (
               <div key={e.id} className="sg-timeline-entry">
                 <div className="sg-row-between">
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-text)' }}>{e.actuator_id} {e.action}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-text)' }}>{gh.meta.actuators.find(a => a.id === e.actuator_id)?.name ?? e.actuator_id} · {eventAction(e.action)}</span>
                   <span style={{ fontSize: 11, color: 'var(--sg-dim)' }}>{fmtDateTime(e.occurred_at)}</span>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{e.reason} · {e.source}</div>
+                <div style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{plainDetail(e.reason)} · {e.source}</div>
               </div>
             ))}
           </div>

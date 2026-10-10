@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import select, update
 
+from .. import messages as M
 from ..bus import Bus, Topics
 from ..control.engine import CommandIn, CommandResult, ControlEngine, TickResult
 from ..control.types import AlertSignal, Band, Change, Reading
@@ -137,8 +138,9 @@ class ControlService:
             except Exception as e:
                 # The engine already believes the change happened; surface the hardware fault loudly.
                 log.exception("output %s failed", c.actuator)
-                self.alerts.sync([AlertSignal(f"{c.actuator}:hal:{now.isoformat()}", "high", c.actuator,
-                                              "ACTUATOR_FAULT", f"{adef.name}: output failed ({e})", kind="event")], now)
+                self.alerts.sync([AlertSignal(f"{c.actuator}:hal:{now.isoformat()}", "high", c.actuator, "ACTUATOR_FAULT",
+                                              M.output_fault(adef.name, c.on, M.output_where(adef.extra), e)[:500],
+                                              kind="event")], now)
             events.append(ActuatorEvent(actuator_id=c.actuator, action="ON" if c.on else "OFF", reason=c.reason[:255],
                                         source=c.source, cmd_id=c.cmd_id, issued_by="system", occurred_at=now))
             log.info("%s %s — %s [%s]", c.actuator, "ON" if c.on else "OFF", c.reason, c.source)
@@ -162,8 +164,7 @@ class ControlService:
             current[d.actuator] = key
             if self._last_deferred.get(d.actuator) != key:
                 rows.append(ActuatorEvent(actuator_id=d.actuator, action="DEFERRED", source="auto", occurred_at=now,
-                                          reason=f"{'ON' if d.target_on else 'OFF'} deferred: {d.reason}"
-                                                 + (f" ({d.retry_s:.0f} s)" if d.retry_s else "")))
+                                          reason=M.deferred_text(d.target_on, d.reason, d.retry_s)))
         self._last_deferred = current
         for aid, mode, why in res.mode_changes:
             rows.append(ActuatorEvent(actuator_id=aid, action=f"MODE_{mode}", reason=why, source="auto", occurred_at=now))
@@ -287,8 +288,10 @@ class ControlService:
             self._apply(changes, now)
             who = p.get("issued_by", "unknown")
             self.alerts.sync([AlertSignal(f"estop:{now.isoformat()}", "high", who, "ESTOP",
-                                          f"Emergency stop by {who}: all outputs off and held in manual", kind="event")], now)
-            result = CommandResult("ACCEPTED", None, "emergency stop: all outputs off, held for 30 min")
+                                          f"Emergency stop by {who}: every device was switched off and is held off for "
+                                          f"30 min. Press Auto on each device to hand it back to the controller.",
+                                          kind="event")], now)
+            result = CommandResult("ACCEPTED", None, "Emergency stop: every device is off and held off for 30 min.")
             self._audit(p, result, now)
             self._finish(cmd_id, result, now)
             self._publish_status(self._last_result, now)
@@ -353,9 +356,9 @@ class ControlService:
             started = utcnow()
             try:
                 r = self.hal.dose(target_sol, tol_sol, float(fert.get("max_dose_time_s", 600)), clear)
-            except Exception as e:
+            except Exception:
                 log.exception("dose failed")
-                r = DoseResult(0.0, "aborted", f"ERROR: {e}"[:60])
+                r = DoseResult(0.0, "aborted", "PUMP_ERROR")
             finished = utcnow()
             with self.lock:
                 stopped = self.engine.dose_stop_requested
@@ -368,11 +371,12 @@ class ControlService:
                                       source=source, issued_by=by, cmd_id=cmd_id, started_at=started, finished_at=finished))
                 s.add(ActuatorEvent(actuator_id="doser", action="DOSE", source=source, issued_by=by, cmd_id=cmd_id,
                                     reason=(f"target {grams:g} g fertilizer ({target_sol:.0f} g solution), delivered "
-                                            f"{delivered:g} g ({sol:g} g solution) — {r.status}{' ' + r.reason if r.reason else ''}"),
+                                            f"{delivered:g} g ({sol:g} g solution) — "
+                                            + ("complete" if r.status == "complete" else f"stopped: {F.stop_text(r.reason)}")),
                                     duration_s=(finished - started).total_seconds(), occurred_at=finished))
             if r.status != "complete" and r.reason != "STOPPED":
                 self.alerts.sync([AlertSignal(f"doser:{r.reason}:{finished.isoformat()}", "high", "doser", r.reason or "DOSE_ABORTED",
-                                              f"Dose aborted after {delivered:g} of {grams:g} g ({r.reason})", kind="event")], finished)
+                                              F.outcome_text(grams, delivered, r.status, r.reason), kind="event")], finished)
             with self.lock:
                 self.engine.dose_finished(finished)
             log.info("dose %s: target %.1f g (%.0f g solution) delivered %.2f g (%.1f g solution) %s",

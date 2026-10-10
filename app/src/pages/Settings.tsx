@@ -9,6 +9,7 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useCommand } from '../components/useCommand';
 import type { Quality, UserItem } from '../contract/types';
 import { fmtDateTime, timeAgo, untilText } from '../components/format';
+import { plainDetail } from '../contract/codes';
 import CloudSetup, { type CloudFns } from '../components/CloudSetup';
 
 const TABS = [['users', 'Users'], ['cloud', 'Cloud'], ['overrides', 'Overrides'], ['diagnostics', 'Diagnostics'], ['data', 'Data']] as const;
@@ -112,7 +113,7 @@ const Overrides: React.FC = () => {
         <div key={a.actuator_id} className="sg-row-between" style={{ padding: '8px 0', borderTop: '1px solid var(--sg-border)' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-text)' }}>{gh.meta.actuators.find(d => d.id === a.actuator_id)?.name ?? a.actuator_id} · {a.on ? 'ON' : 'OFF'}</div>
-            <div style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{a.manual_until ? untilText(a.manual_until) : 'held'}{a.reason ? ` · ${a.reason}` : ''}</div>
+            <div style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{a.manual_until ? untilText(a.manual_until) : 'held'}{a.reason ? ` · ${plainDetail(a.reason)}` : ''}</div>
           </div>
           <IonButton size="small" disabled={!!blocked || busy !== null} onClick={() => send({ actuator_id: a.actuator_id, action: 'AUTO' })}>Auto</IonButton>
         </div>

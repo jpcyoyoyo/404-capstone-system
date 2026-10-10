@@ -8,6 +8,7 @@ import { METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
 import type { AuditEntry, EventEntry, FertilizerReport, HistoryResult, WaterDay } from '../contract/types';
 import { downloadFile, fmtDateTime, toCsv } from '../components/format';
+import { commandRefusal, doseStop, eventAction, plainDetail } from '../contract/codes';
 
 type Tab = 'environment' | 'water' | 'fertilizer' | 'activity';
 const PARAMS: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level'];
@@ -17,6 +18,21 @@ const RANGES = [
   { id: '30d', ms: 30 * 864e5, res: '1d' as const },
 ];
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#14b8a6', '#ef4444', '#64748b'];
+// Commands name the device; a refused one gives the reason in words, as the toast did.
+const auditRow = (a: AuditEntry, names: Record<string, string>): { what: string; detail: string; warn: boolean } => {
+  const d = (a.detail ?? {}) as { action?: string; reason?: string | null; message?: string | null };
+  const m = a.action.match(/^command_(\w+)$/);
+  if (m && a.target.startsWith('actuator:')) {
+    const id = a.target.slice('actuator:'.length);
+    const name = id === 'all' ? 'Emergency stop' : names[id] ?? id;
+    if (m[1] === 'rejected' || m[1] === 'expired') {
+      const r = commandRefusal(d.reason, d.message, name, id === 'all' ? 'ESTOP' : d.action ?? '');
+      return { what: r.title, detail: r.text, warn: true };
+    }
+    return { what: `${name} · ${eventAction(`CMD_${d.action ?? ''}`)}${m[1] === 'simulated' ? ' (simulated)' : ''}`, detail: d.message ?? '', warn: false };
+  }
+  return { what: a.action.replace(/_/g, ' '), detail: a.target, warn: false };
+};
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
 const Records: React.FC = () => {
@@ -58,10 +74,15 @@ const Records: React.FC = () => {
     points: pts.map(p => ({ t: Date.parse(p.ts), v: p.value })),
   })), [hist]);
 
-  const activity = useMemo(() => [
-    ...events.map(e => ({ at: e.occurred_at, kind: 'device', who: e.issued_by, what: `${e.actuator_id} ${e.action}`, detail: `${e.reason} (${e.source})` })),
-    ...audit.map(a => ({ at: a.occurred_at, kind: 'audit', who: a.actor, what: a.action.replace(/_/g, ' '), detail: a.target })),
-  ].sort((a, b) => b.at.localeCompare(a.at)), [events, audit]);
+  const activity = useMemo(() => {
+    const names = Object.fromEntries(gh.meta.actuators.map(a => [a.id, a.name]));
+    return [
+    ...events.map(e => ({ at: e.occurred_at, kind: 'device', who: e.issued_by, warn: e.action === 'SUPPRESSED' || /— stopped:|aborted/.test(e.reason ?? ''),
+      what: `${gh.meta.actuators.find(a => a.id === e.actuator_id)?.name ?? e.actuator_id} · ${eventAction(e.action)}`,
+      // Lines recorded before 11 Oct 2026 can end in a code ("— aborted LOAD_CELL_FAULT", "deferred: MIN_OFF_TIME"); show words.
+      detail: `${plainDetail((e.reason ?? '').replace(/— aborted ([A-Z_]+)$/, (_m, c: string) => `— stopped: ${doseStop(c).title.toLowerCase()}`))} (${e.source})` })),
+    ...audit.map(a => ({ at: a.occurred_at, kind: 'audit', who: a.actor, ...auditRow(a, names) })),
+  ].sort((a, b) => b.at.localeCompare(a.at)); }, [events, audit, gh.meta.actuators]);
 
   const exportCsv = () => {
     if (tab === 'environment' && hist) {
@@ -137,7 +158,7 @@ const Records: React.FC = () => {
           <div className="sg-card">
             <div className="sg-row sg-gap-8" style={{ marginBottom: 10 }}>
               {[
-                { l: 'Doses', v: `${fert.complete}/${fert.count}` },
+                { l: 'Completed', v: `${fert.complete} of ${fert.count}` },
                 { l: 'Delivered', v: `${fert.total_delivered_g} g` },
                 { l: 'Mean |error|', v: fert.mean_abs_error_g !== null ? `${fert.mean_abs_error_g} g` : '—' },
               ].map(k => (
@@ -150,7 +171,9 @@ const Records: React.FC = () => {
             {fert.doses.map(d => (
               <div key={d.id} className="sg-row-between" style={{ padding: '7px 0', borderTop: '1px solid var(--sg-border)' }}>
                 <span style={{ fontSize: 12, color: 'var(--sg-text)' }}>{fmtDateTime(d.started_at)}</span>
-                <span style={{ fontSize: 12, color: 'var(--sg-muted)' }}>{d.target_g} → {d.delivered_g ?? '—'} g · {d.status}</span>
+                <span style={{ fontSize: 12, color: d.status === 'complete' ? 'var(--sg-muted)' : '#f59e0b', textAlign: 'right' }}>
+                  {d.target_g} → {d.delivered_g ?? '—'} g · {d.status === 'complete' ? 'complete' : `stopped: ${doseStop(d.reason).title.toLowerCase()}`}
+                </span>
               </div>
             ))}
           </div>
@@ -160,7 +183,7 @@ const Records: React.FC = () => {
           <div className="sg-card">
             {activity.length === 0 && !loading && <div style={{ fontSize: 12, color: 'var(--sg-dim)' }}>Nothing recorded yet.</div>}
             {activity.slice(0, 150).map((a, i) => (
-              <div key={i} className={`sg-timeline-entry ${a.what.includes('REJECTED') || a.what.includes('rejected') ? 'warn' : ''}`}>
+              <div key={i} className={`sg-timeline-entry ${a.warn ? 'warn' : ''}`}>
                 <div className="sg-row-between">
                   <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--sg-text)' }}>{a.what}</span>
                   <span style={{ fontSize: 10, color: 'var(--sg-dim)' }}>{fmtDateTime(a.at)}</span>

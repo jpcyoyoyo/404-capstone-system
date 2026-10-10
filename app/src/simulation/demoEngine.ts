@@ -51,6 +51,8 @@ export interface DemoSnapshot {
 
 const MAX_MANUAL_S = REGISTRY_META.control.manual_override_max_s;
 const RESERVOIR_MIN = 15;
+/** [min on, min off] in seconds, from contract/registry.yaml. */
+const MIN_ON_OFF_S: Record<string, [number, number]> = { pump: [30, 120], fan_exhaust: [60, 60], lights: [300, 300] };
 const DEMO_USER = 'demo@greenhouse.local';
 const BUILTIN_PRESET = 'petchay';
 
@@ -415,6 +417,13 @@ export class DemoController {
       return done('SIMULATED', null, 'Dose stopped (simulated).');
     }
     if (on && def.water && this.levelPct < RESERVOIR_MIN) return done('REJECTED', 'LOW_WATER', 'Reservoir water is too low.');
+    // Minimum on/off times, as the controller's guard (registry min_on_s / min_off_s).
+    const minS = MIN_ON_OFF_S[def.id];
+    if (minS && a.since && a.on !== on) {
+      const held = (now - Date.parse(a.since)) / 1000;
+      const need = a.on ? minS[0] : minS[1];
+      if (held < need) return done('REJECTED', a.on ? 'MIN_ON_TIME' : 'MIN_OFF_TIME', `retry in ${Math.ceil(need - held)} s`);
+    }
     const dur = Math.min(c.duration_s ?? MAX_MANUAL_S, MAX_MANUAL_S);
     a.mode = 'MANUAL'; a.manualUntilMs = now + dur * 1000; a.manual_until = iso(a.manualUntilMs);
     this.event(def.id, 'MODE_MANUAL', `Manual for ${Math.round(dur / 60)} min`, 'manual', c.cmd_id);

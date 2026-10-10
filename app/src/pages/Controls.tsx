@@ -8,7 +8,7 @@ import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { useCommand } from '../components/useCommand';
 import { ACTUATOR_ICON } from '../components/display';
 import { fmtTime, untilText } from '../components/format';
-import { reasonText } from '../contract/codes';
+import { LOCK_PILL, plainDetail, reasonText } from '../contract/codes';
 import type { ActuatorDef, ActuatorState, Circuit } from '../contract/types';
 
 const DURATIONS = [1, 3, 5, 10, 15, 30];
@@ -74,6 +74,8 @@ const Controls: React.FC = () => {
     const lock = lockout(st, def);
     const manual = st?.mode === 'MANUAL';
     const disabled = !!blocked || !def.installed || def.manual_only || busy !== null;
+    // A safety lock (low water, float switch) refuses ON; OFF and Auto still work.
+    const locked = def.installed && !!st?.lockout && st.lockout !== 'NOT_INSTALLED';
     return (
       <div className="sg-toggle-row" style={{ opacity: def.installed ? 1 : 0.55, alignItems: 'flex-start' }}>
         <IonIcon icon={ACTUATOR_ICON[def.id]} style={{ fontSize: 18, color: st?.on ? '#22c55e' : 'var(--sg-muted)', marginTop: 2 }} />
@@ -84,14 +86,14 @@ const Controls: React.FC = () => {
             {manual && <span className="sg-pill sg-pill-warn" style={{ fontSize: 9 }}>MANUAL</span>}
           </div>
           <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 2 }}>
-            {lock ? <><IonIcon icon={lockClosedOutline} style={{ fontSize: 10 }} /> {lock}</>
+            {lock ? <span style={{ color: locked ? '#f59e0b' : undefined, lineHeight: 1.45 }}><IonIcon icon={lockClosedOutline} style={{ fontSize: 10 }} /> {lock}</span>
               : manual && st?.manual_until ? `Manual · ${untilText(st.manual_until)}`
-              : st?.reason ? `${st.reason}${st.since ? ` · ${fmtTime(st.since)}` : ''}` : 'Automatic'}
+              : st?.reason ? `${plainDetail(st.reason)}${st.since ? ` · ${fmtTime(st.since)}` : ''}` : 'Automatic'}
           </div>
           {def.installed && !def.manual_only && def.kind !== 'dosing_pump' && (
             <div className="sg-row sg-gap-8" style={{ marginTop: 8 }}>
               {busy === def.id ? <IonSpinner name="dots" /> : <>
-                <IonButton size="small" fill={st?.on && manual ? 'solid' : 'outline'} disabled={disabled}
+                <IonButton size="small" fill={st?.on && manual ? 'solid' : 'outline'} disabled={disabled || locked}
                   onClick={() => pickDuration(`Turn ${def.name} on for how long?`, s => send({ actuator_id: def.id, action: 'ON', duration_s: s }))}>On</IonButton>
                 <IonButton size="small" fill={!st?.on && manual ? 'solid' : 'outline'} color="medium" disabled={disabled}
                   onClick={() => pickDuration(`Hold ${def.name} off for how long?`, s => send({ actuator_id: def.id, action: 'OFF', duration_s: s }))}>Off</IonButton>
@@ -152,7 +154,7 @@ const Controls: React.FC = () => {
             </div>
             <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginBottom: 10 }}>
               {irrLock ? <span style={{ color: '#ef4444' }}><IonIcon icon={lockClosedOutline} /> {irrLock}</span>
-                : irr?.on ? `${irr.reason ?? `Running on the ${irr.circuit} circuit`}${irr.since || irr.ts ? ` since ${fmtTime(irr.since ?? irr.ts)}` : ''}${irrManual && irr.manual_until ? ` · ${untilText(irr.manual_until)}` : ''}`
+                : irr?.on ? `${plainDetail(irr.reason) || `Running on the ${irr.circuit} circuit`}${irr.since || irr.ts ? ` since ${fmtTime(irr.since ?? irr.ts)}` : ''}${irrManual && irr.manual_until ? ` · ${untilText(irr.manual_until)}` : ''}`
                 : `Starts when soil moisture drops below ${gh.thresholds.soil_moisture?.min ?? '—'}% (now ${gh.metrics.soil_moisture.value?.toFixed(0) ?? '—'}%).`}
             </div>
             {busy === 'irrigation' ? <IonSpinner name="dots" /> : (
@@ -177,7 +179,7 @@ const Controls: React.FC = () => {
                   return (
                     <div key={id} className="sg-row-between" style={{ padding: '6px 0', borderTop: '1px solid var(--sg-border)' }}>
                       <span style={{ fontSize: 12, color: 'var(--sg-text)' }}>{def.name}{def.manual_only ? ' (by hand)' : ''}</span>
-                      <span className={`sg-pill ${st?.on ? 'sg-pill-ok' : 'sg-pill-idle'}`} style={{ fontSize: 9 }}>{!def.installed ? 'N/A' : st?.lockout ? st.lockout : st?.on ? 'ON' : 'OFF'}</span>
+                      <span className={`sg-pill ${st?.lockout && def.installed ? 'sg-pill-crit' : st?.on ? 'sg-pill-ok' : 'sg-pill-idle'}`} style={{ fontSize: 9 }}>{!def.installed ? 'N/A' : st?.lockout ? (LOCK_PILL[st.lockout] ?? 'LOCKED') : st?.on ? 'ON' : 'OFF'}</span>
                     </div>
                   );
                 })}

@@ -27,7 +27,13 @@ def arbitrate(requests: list[Request]) -> tuple[dict[str, Request], list[Suppres
                 suppressed.append(Suppressed(
                     actuator=act, wanted_on=loser.on, source=loser.source, rule=loser.rule,
                     by_source=winner.source, by_rule=winner.rule,
-                    reason=(f"{loser.source} wanted {act} {'ON' if loser.on else 'OFF'} ({loser.reason}); "
-                            f"overruled by {winner.source} [{RULE_NAMES[winner.rule]}]: {winner.reason}"),
+                    reason=(f"{_who(loser.source)} wanted it {'on' if loser.on else 'off'} ({loser.reason}), but "
+                            f"{_who(winner.source)} kept it {'on' if winner.on else 'off'} ({RULE_NAMES[winner.rule]} "
+                            f"rule first): {winner.reason}"),
                 ))
     return decisions, suppressed
+
+
+def _who(source: str) -> str:
+    """'soil_moisture' → 'soil moisture', 'operator a@b' stays, 'reservoir' stays."""
+    return source.replace("_", " ")

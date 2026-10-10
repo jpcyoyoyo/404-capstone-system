@@ -27,6 +27,7 @@ import sys
 import time
 from datetime import timedelta
 
+from . import messages as M
 from . import quality
 from .registry import Registry
 from .timeutil import utcnow
@@ -188,9 +189,14 @@ def cmd_on(reg: Registry, hal, aid: str, seconds: float, yes: bool) -> None:
     try:
         hal.set_output(a, True)
         time.sleep(seconds)
+    except Exception as e:
+        sys.exit(M.output_fault(a.name, True, M.output_where(a.extra), e))
     finally:
-        hal.set_output(a, False)
-        print(f"{aid} OFF")
+        try:
+            hal.set_output(a, False)
+            print(f"{aid} OFF")
+        except Exception as e:
+            print(M.output_fault(a.name, False, M.output_where(a.extra), e))
 
 
 def cmd_relay(settings, reg: Registry, which: str, seconds: float) -> None:
@@ -267,8 +273,12 @@ def cmd_dose(reg: Registry, hal, db, grams: float, solution: bool) -> None:
     r = hal.dose(target_sol, tol_sol, float(fert.get("max_dose_time_s", 600)), lambda: True)
     took = time.monotonic() - t0
     fert_g = F.to_fertilizer(r.delivered_g, conc)
-    print(f"{r.status}: delivered {r.delivered_g:g} g of solution (error {r.delivered_g - target_sol:+.1f} g)"
-          f" = {fert_g:.2f} g fertilizer, in {took:.0f} s{' ' + r.reason if r.reason else ''}")
+    if r.status == "complete":
+        print(f"complete: delivered {r.delivered_g:g} g of solution (error {r.delivered_g - target_sol:+.1f} g)"
+              f" = {fert_g:.2f} g fertilizer, in {took:.0f} s")
+    else:
+        print(f"STOPPED after {r.delivered_g:g} g of solution ({fert_g:.2f} g fertilizer), {took:.0f} s: "
+              f"{F.stop_text(r.reason)} [{r.reason}]")
 
 
 def cmd_watch(settings, reg: Registry, node: str | None, seconds: float) -> None:

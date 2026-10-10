@@ -38,6 +38,11 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
   controller (max 30 min), so never keep "manual" state in the app.
 - Viewer accounts and the cloud path (while `remote_commands` is false) can't command:
   `useCommand().blocked` explains why; disable the control rather than hiding it.
+- Never show a bare machine code (LOW_WATER, MIN_OFF_TIME, LOAD_CELL_FAULT) to a user. Refusals go
+  through `commandRefusal()` (title names the device and what did not happen, then why and when to try
+  again), activity lines through `eventAction()` / `plainDetail()`, dose stops through `doseStop()`.
+  Keep `REASON_TEXT` in step with `controller/greenhouse/messages.py`. A control that a safety lock
+  refuses is disabled, with the reason under it.
 - Anything capability-gated (energy, push) reads `meta.capabilities`, never a hard-coded flag.
 - New device or sensor: add it to `contract/registry.yaml`, regenerate, and the pages pick it up
   from `meta.actuators` / `meta.sensors`.
