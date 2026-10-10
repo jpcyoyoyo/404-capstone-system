@@ -100,16 +100,39 @@ def cmd_read(reg: Registry, hal, db, ids: list[str], count: int, interval: float
     cal = CalibrationStore(db) if db is not None else None
     started = utcnow() - timedelta(hours=1)   # outside CO2 warm-up for display purposes
     print(f"{'sensor':<12} {'raw':>12} {'value':>10} {'unit':<6} quality")
+    seen: dict[str, tuple[list[float], list[float]]] = {s.id: ([], []) for s in sensors}
     for n in range(count):
         for smp in hal.read_local(sensors):
             sd = next(s for s in sensors if s.id == smp.sensor_id)
             value, q = quality.evaluate(sd, smp.raw, smp.ok, cal.get(sd.id) if cal else None, utcnow(), started)
-            raw = "—" if smp.raw is None else f"{smp.raw:.5g}"
+            if smp.ok and smp.raw is not None:
+                seen[sd.id][0].append(float(smp.raw))
+                if value is not None:
+                    seen[sd.id][1].append(float(value))
+            # large counts (HX711) in full, not as 6.3809e+05, which hid the last digit
+            raw = "—" if smp.raw is None else f"{smp.raw:.0f}" if abs(smp.raw) >= 1e5 else f"{smp.raw:.5g}"
             val = "—" if value is None else f"{value:.4g}"
             note = f"  ({smp.error})" if smp.error and not smp.ok else ""
             print(f"{sd.id:<12} {raw:>12} {val:>10} {sd.unit:<6} {q}{note}")
         if n < count - 1:
             time.sleep(interval)
+    if count > 1:
+        _print_summary(sensors, seen)
+
+
+def _print_summary(sensors, seen: dict[str, tuple[list[float], list[float]]]) -> None:
+    """Mean and spread of the valid readings, so bench tests need no hand arithmetic (A8 T1-T6)."""
+    print()
+    for sd in sensors:
+        raws, vals = seen[sd.id]
+        if not raws:
+            print(f"{sd.id:<12} MEAN RAW —  (no valid readings)")
+            continue
+        line = (f"{sd.id:<12} MEAN RAW {sum(raws) / len(raws):.6g}  spread {max(raws) - min(raws):.5g}"
+                f"  (min {min(raws):.6g}, max {max(raws):.6g}, {len(raws)} valid)")
+        if vals:
+            line += f"  MEAN VALUE {sum(vals) / len(vals):.5g} {sd.unit}  spread {max(vals) - min(vals):.3g}"
+        print(line)
 
 
 def cmd_distance(reg: Registry, hal, sid: str, count: int, interval: float) -> None:
