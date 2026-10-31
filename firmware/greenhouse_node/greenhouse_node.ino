@@ -1,7 +1,7 @@
 // Smart Greenhouse sensing node — Node A (ESP8266) and Node B (ESP32).
 // Publishes raw readings every PUBLISH_MS on gh/<GH_ID>/node/<NODE_ID>/raw (contract/schemas/node_raw).
 // Calibration and quality flags are applied on the Pi, so recalibrating never needs a reflash.
-#include "config.h"
+#include "config_b.h"
 
 #if defined(ESP32)
   #include <WiFi.h>
@@ -37,6 +37,12 @@ bool haveLight = false, haveAds = false;
 char topicRaw[64], topicStatus[64];
 uint32_t seq = 0, lastPublish = 0, lastConnected = 0;
 
+// Waits without starving MQTT: a plain delay() longer than the keep-alive lets the broker drop the node.
+void waitServicing(uint32_t ms) {
+  uint32_t t0 = millis();
+  while (millis() - t0 < ms) { mqtt.loop(); delay(10); }
+}
+
 String sensorId(const char *prefix, int n) {
   char buf[24];
   snprintf(buf, sizeof buf, "%s_%s_%02d", prefix, ZONE, n);
@@ -69,6 +75,11 @@ void connectWifi() {
   const char *ssid = (useSecond && haveSecond) ? WIFI2_SSID : WIFI_SSID;
   const char *pass = (useSecond && haveSecond) ? WIFI2_PASS : WIFI_PASS;
   WiFi.mode(WIFI_STA);
+#if defined(ESP8266)
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);      // mains powered: no modem sleep, steadier MQTT link
+#else
+  WiFi.setSleep(false);
+#endif
   WiFi.disconnect();
   WiFi.begin(ssid, pass);
   Serial.printf("wifi: connecting to %s", ssid);
@@ -97,7 +108,10 @@ void connectMqtt() {
     mqtt.publish(topicStatus, (const uint8_t *)buf, n, true);
     Serial.println("ok");
   } else {
-    Serial.printf("failed, state %d (4/5 = wrong user or password)\n", mqtt.state());
+    int st = mqtt.state();
+    Serial.printf("failed, state %d (%s)\n", st,
+                  st == 4 || st == 5 ? "wrong user or password, or not allowed" :
+                  st <= -2 ? "no network connection to the broker" : "see PubSubClient states");
   }
 }
 
@@ -108,14 +122,23 @@ void publishReadings() {
   doc["seq"] = ++seq;
   JsonArray arr = doc["readings"].to<JsonArray>();
 
+  float tv[3], hv[3];
+  bool anyFailed = false;
   for (int i = 0; i < 3; i++) {
-    float t = dht[i].readTemperature();
-    float h = dht[i].readHumidity();
-    if (isnan(t) || isnan(h)) {            // one retry: the DHT22 needs 2 s between reads
-      delay(2100);
-      t = dht[i].readTemperature(false, true);
-      h = dht[i].readHumidity(true);
+    tv[i] = dht[i].readTemperature();
+    hv[i] = dht[i].readHumidity();
+    if (isnan(tv[i]) || isnan(hv[i])) anyFailed = true;
+  }
+  if (anyFailed) {                         // one retry: the DHT22 needs 2 s between reads
+    waitServicing(2100);                   // one shared wait, MQTT kept alive meanwhile
+    for (int i = 0; i < 3; i++) {
+      if (!isnan(tv[i]) && !isnan(hv[i])) continue;
+      tv[i] = dht[i].readTemperature(false, true);
+      hv[i] = dht[i].readHumidity(true);
     }
+  }
+  for (int i = 0; i < 3; i++) {
+    float t = tv[i], h = hv[i];
     addReading(arr, sensorId("temp", i + 1), t, !isnan(t), "read_failed");
     addReading(arr, sensorId("hum", i + 1), h, !isnan(h), "read_failed");
     Serial.printf("dht_%s_%02d  %6.1f C  %6.1f %%RH\n", ZONE, i + 1, t, h);
@@ -157,7 +180,7 @@ void setup() {
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   connectWifi();
   configTime(0, 0, "pool.ntp.org", "time.google.com");   // optional: ts stays null without internet
-  mqtt.setKeepAlive(5);                   // broker detects a lost node in about 8 s
+  mqtt.setKeepAlive(8);                   // broker detects a lost node in about 12 s (A11 T8: 15 s)
   mqtt.setBufferSize(1024);
   connectMqtt();
   lastPublish = millis() - PUBLISH_MS + 3000;   // first reading 3 s after boot

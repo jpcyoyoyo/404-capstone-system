@@ -91,12 +91,15 @@ source you use — sideloading from a file manager, browser download, etc.).
 
 ## Notes
 
-- `capacitor.config.ts`'s `appId` is still the generic Capacitor starter value (`io.ionic.starter`)
-  and `android/variables.gradle` reflects the Gradle project as originally scaffolded. Renaming the
-  app identifier for a real release means updating `capacitor.config.ts` **and** the Android
-  project's `applicationId`/package structure in `android/app/build.gradle` and Java source dirs —
-  do this deliberately as its own step if/when you're ready to ship under a real identity; it's not
-  required just to build and test APKs.
-- There is no backend — the app is fully self-contained (see `src/simulation/SimulationContext.tsx`),
-  so a built APK works the same on-device as it does in the dev server, no server/network setup
-  needed.
+- The app identifier is `ph.edu.slsu.smartgreenhouse` (`capacitor.config.ts` and
+  `android/app/build.gradle`). Keep the two the same if it ever changes.
+- The installed app's version comes from `versionCode` / `versionName` in
+  `android/app/build.gradle` (currently 1 / "1.0"), not from the APK's file name. Raise
+  `versionCode` by one for each new APK handed out; a phone refuses an APK with a lower
+  `versionCode` than the one installed.
+- `android/`, `dist/` and keystore files (`*.jks`, `*.keystore`, `keystore.properties`) are
+  ignored by the repository's root `.gitignore`. Keep the keystore outside the repository folder anyway.
+- The app needs the controller for live data: it talks to the Pi over REST (`http://<pi>:8000`)
+  and MQTT over WebSocket (`ws://<pi>:9001`), which is why `capacitor.config.ts` serves the app
+  over http with cleartext allowed. Without a controller, use **demo mode**: every screen
+  works on simulated data and every command answers SIMULATED.

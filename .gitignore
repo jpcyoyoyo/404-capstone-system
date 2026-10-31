@@ -22,6 +22,7 @@ deploy/mysql/mysql.env
 deploy/mysql/backup/
 deploy/cloud/cloud.env
 firmware/**/config.h
+firmware/**/config_*.h
 *.jks
 *.keystore
 keystore.properties
@@ -43,3 +44,5 @@ firmware/**/build/
 Thumbs.db
 desktop.ini
 *.log
+
+commit_*.txt
