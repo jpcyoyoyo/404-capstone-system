@@ -15,6 +15,22 @@ LOG=${KIOSK_LOG:-$HOME/.cache/greenhouse-kiosk.log}
 ERR="$LOG.chromium"
 mkdir -p "$(dirname "$LOG")"
 
+# Only one copy may run. Restarting lightdm does not stop the old session's copy, and on
+# 31 Oct 2026 two copies fought over the screen. A new copy stops the old one and its Chromium.
+PIDFILE=${KIOSK_PIDFILE:-$HOME/.cache/greenhouse-kiosk.pid}
+old=$(cat "$PIDFILE" 2>/dev/null)
+if [ -n "$old" ] && [ "$old" != "$$" ] && tr '\0' ' ' < "/proc/$old/cmdline" 2>/dev/null | grep -q 'kiosk\.sh'; then
+  kids=$(pgrep -P "$old")
+  kill "$old" 2>/dev/null
+  [ -n "$kids" ] && kill $kids 2>/dev/null
+  for _ in $(seq 1 15); do
+    alive=0; for p in $old $kids; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ "$alive" = 0 ] && break; sleep 1
+  done
+  echo "$(date '+%F %T') stopped an older kiosk.sh (PID $old)" >> "$LOG"
+fi
+echo $$ > "$PIDFILE"
+
 # Screen never blanks (X11 only; under labwc turn blanking off in raspi-config, Display Options)
 xset s off 2>/dev/null; xset -dpms 2>/dev/null; xset s noblank 2>/dev/null
 
