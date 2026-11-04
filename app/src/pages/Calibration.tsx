@@ -12,8 +12,26 @@ import { fmtDateTime } from '../components/format';
 const DUE_DAYS: Record<string, number> = { ph: 14, ec: 14, soil_moisture: 90, stock_weight: 90 };
 const KIND_TEXT: Record<string, string> = {
   dry_wet: 'Two readings: probe in dry air, then in water.',
-  two_point: 'Two buffer solutions (pH 4.01 and 6.86), optional 9.18 to verify.',
   scale: 'Empty stock bottle on the platform, then a known weight.',
+};
+
+/** Two-point fits are shared by pH and EC, but their reference points differ.
+ *  The controller fits whatever references are entered and stores them under the sensor's own type. */
+interface TwoPointSetup { text: string; labels: [string, string, string]; refs: [string, string, string]; unit: string }
+const TWO_POINT: Record<string, TwoPointSetup> = {
+  ph: {
+    text: 'Two buffer solutions (pH 4.01 and 6.86), optional 9.18 to verify.',
+    labels: ['Buffer 1', 'Buffer 2', 'Buffer (check)'], refs: ['4.01', '6.86', '9.18'], unit: 'pH',
+  },
+  ec: {
+    text: 'Probe dry in air (0 mS/cm), then in the EC standard. Enter the standard at the water temperature now, '
+      + 'not its 25 °C label value: label × (1 + 0.02 × (°C − 25)); the controller corrects readings back to 25 °C. '
+      + 'A second standard can go in the check row.',
+    labels: ['Air (dry)', 'Standard', 'Check'], refs: ['0', '', ''], unit: 'mS/cm',
+  },
+};
+const TWO_POINT_OTHER: TwoPointSetup = {
+  text: 'Two reference points, optional third to verify.', labels: ['Point 1', 'Point 2', 'Point (check)'], refs: ['', '', ''], unit: '',
 };
 
 const input: React.CSSProperties = {
@@ -37,7 +55,8 @@ const Capture: React.FC<{ label: string; value: string; live: number | null | un
 const Wizard: React.FC<{ entry: CalibrationEntry; onDone: () => void }> = ({ entry, onDone }) => {
   const gh = useGreenhouse();
   const [toast] = useIonToast();
-  const [f, setF] = useState<Fields>({ ref1: '4.01', ref2: '6.86', ref3: '9.18', known: '500' });
+  const tp = TWO_POINT[entry.type] ?? TWO_POINT_OTHER;
+  const [f, setF] = useState<Fields>({ ref1: tp.refs[0], ref2: tp.refs[1], ref3: tp.refs[2], known: '500' });
   const [saving, setSaving] = useState(false);
   const live = gh.readings[entry.sensor_id]?.raw;
   const set = (k: string) => (v: string) => setF(x => ({ ...x, [k]: v }));
@@ -45,9 +64,9 @@ const Wizard: React.FC<{ entry: CalibrationEntry; onDone: () => void }> = ({ ent
 
   let body: CalibrationBody | null = null;
   if (entry.kind === 'dry_wet' && num('dry') !== undefined && num('wet') !== undefined) body = { kind: 'dry_wet', dry: num('dry'), wet: num('wet') };
-  if (entry.kind === 'two_point' && num('raw1') !== undefined && num('raw2') !== undefined) {
+  if (entry.kind === 'two_point' && ['raw1', 'ref1', 'raw2', 'ref2'].every(k => num(k) !== undefined)) {
     const points = [{ raw: num('raw1')!, ref: num('ref1')! }, { raw: num('raw2')!, ref: num('ref2')! }];
-    if (num('raw3') !== undefined) points.push({ raw: num('raw3')!, ref: num('ref3')! });
+    if (num('raw3') !== undefined && num('ref3') !== undefined) points.push({ raw: num('raw3')!, ref: num('ref3')! });
     body = { kind: 'two_point', points };
   }
   if (entry.kind === 'scale' && num('offset') !== undefined && num('atKnown') !== undefined && num('known')) {
@@ -69,16 +88,16 @@ const Wizard: React.FC<{ entry: CalibrationEntry; onDone: () => void }> = ({ ent
 
   return (
     <div style={{ marginTop: 10, padding: 10, background: 'var(--sg-elevated)', borderRadius: 10 }}>
-      <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginBottom: 8 }}>{KIND_TEXT[entry.kind]} Live raw now: <b style={{ color: 'var(--sg-text)' }}>{live ?? '—'}</b></div>
+      <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginBottom: 8 }}>{entry.kind === 'two_point' ? tp.text : KIND_TEXT[entry.kind]} Live raw now: <b style={{ color: 'var(--sg-text)' }}>{live ?? '—'}</b></div>
       {entry.kind === 'dry_wet' && <>
         <Capture label="1 · Probe in dry air (raw)" value={f.dry ?? ''} live={live} onChange={set('dry')} />
         <Capture label="2 · Probe in a glass of water (raw)" value={f.wet ?? ''} live={live} onChange={set('wet')} />
       </>}
       {entry.kind === 'two_point' && [1, 2, 3].map(i => (
         <div key={i} className="sg-row sg-gap-8" style={{ alignItems: 'flex-end' }}>
-          <div style={{ width: 80 }}>
-            <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginBottom: 3 }}>Buffer {i === 3 ? '(check)' : i}</div>
-            <input style={{ ...input, marginBottom: 8 }} type="number" step="any" value={f[`ref${i}`] ?? ''} onChange={e => set(`ref${i}`)(e.target.value)} />
+          <div style={{ width: 96 }}>
+            <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginBottom: 3 }}>{tp.labels[i - 1]}</div>
+            <input style={{ ...input, marginBottom: 8 }} type="number" inputMode="decimal" step="any" placeholder={tp.unit} value={f[`ref${i}`] ?? ''} onChange={e => set(`ref${i}`)(e.target.value)} />
           </div>
           <div style={{ flex: 1 }}><Capture label="raw volts at the ADC" value={f[`raw${i}`] ?? ''} live={live} onChange={set(`raw${i}`)} /></div>
         </div>

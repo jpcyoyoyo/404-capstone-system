@@ -1,7 +1,15 @@
 // Smart Greenhouse sensing node — Node A (ESP8266) and Node B (ESP32).
 // Publishes raw readings every PUBLISH_MS on gh/<GH_ID>/node/<NODE_ID>/raw (contract/schemas/node_raw).
 // Calibration and quality flags are applied on the Pi, so recalibrating never needs a reflash.
-#include "config_b.h"
+// Settings come from the node's own config file, chosen by board: config_a.h for Node A (ESP8266),
+// config_b.h for Node B (ESP32), otherwise config.h. All three are git-ignored; copy config.example.h.
+#if defined(ESP8266) && __has_include("config_a.h")
+  #include "config_a.h"
+#elif defined(ESP32) && __has_include("config_b.h")
+  #include "config_b.h"
+#else
+  #include "config.h"
+#endif
 
 #if defined(ESP32)
   #include <WiFi.h>
@@ -33,6 +41,11 @@ DHT dht[3] = {DHT(DHT_PINS[0], DHT22), DHT(DHT_PINS[1], DHT22), DHT(DHT_PINS[2],
 BH1750 lightMeter(BH1750_ADDR);
 Adafruit_ADS1115 ads;
 bool haveLight = false, haveAds = false;
+
+// BH1750 measurement time register at its minimum (default 69): the range grows from 54,612 lux to about
+// 121,000 lux, so real greenhouse light should never reach the top count, at about 1.9 lux per count.
+static const uint8_t BH1750_MTREG = 31;
+static const float LUX_FULL_SCALE = 65535.0f / 1.2f * (69.0f / BH1750_MTREG);
 
 char topicRaw[64], topicStatus[64];
 uint32_t seq = 0, lastPublish = 0, lastConnected = 0;
@@ -115,6 +128,23 @@ void connectMqtt() {
   }
 }
 
+// One light reading. A result at the top count (0xFFFF) is treated as a failed read, not as light:
+// in A11 T9 Node A sent 54,612.5 lux (the old full scale) 15 times in an hour in a room at about 35 lux.
+// Retries once, then reports "full_scale" so the Pi stores it INVALID and the controller holds the lights.
+float readLux(const char *&err) {
+  err = nullptr;
+  if (!haveLight) { err = "bh1750_missing"; return -1; }
+  float lux = -1;
+  for (int attempt = 0; attempt < 2; attempt++) {
+    if (attempt) waitServicing(200);           // longer than one measurement (about 55 ms at MTreg 31)
+    lux = lightMeter.readLightLevel();
+    if (lux < 0) err = "read_failed";
+    else if (lux >= LUX_FULL_SCALE * 0.999f) err = "full_scale";
+    else { err = nullptr; return lux; }
+  }
+  return lux;
+}
+
 void publishReadings() {
   JsonDocument doc;
   doc["node_id"] = NODE_ID;
@@ -152,9 +182,10 @@ void publishReadings() {
     Serial.printf("soil_%s_%02d  %6d counts  %.3f V\n", ZONE, ch + 1, counts, ads.computeVolts(counts));
   }
 
-  float lux = haveLight ? lightMeter.readLightLevel() : -1;
-  addReading(arr, sensorId("light", 1), lux, lux >= 0, haveLight ? "read_failed" : "bh1750_missing");
-  Serial.printf("light_%s_01 %8.1f lux\n", ZONE, lux);
+  const char *lightErr = nullptr;
+  float lux = readLux(lightErr);
+  addReading(arr, sensorId("light", 1), lux, lightErr == nullptr, lightErr);
+  Serial.printf("light_%s_01 %8.1f lux%s%s\n", ZONE, lux, lightErr ? "  " : "", lightErr ? lightErr : "");
 
   char buf[1024];
   size_t n = serializeJson(doc, buf, sizeof buf);
@@ -173,6 +204,7 @@ void setup() {
   Wire.begin(PIN_SDA, PIN_SCL);
   for (auto &d : dht) d.begin();
   haveLight = lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
+  if (haveLight && !lightMeter.setMTreg(BH1750_MTREG)) Serial.println("bh1750: setMTreg failed");
   haveAds = ads.begin(0x48);
   if (haveAds) ads.setGain(GAIN_ONE);      // ±4.096 V, 0.125 mV per count
   Serial.printf("bh1750 0x%02X: %s   ads1115 0x48: %s\n", BH1750_ADDR, haveLight ? "found" : "MISSING", haveAds ? "found" : "MISSING");
