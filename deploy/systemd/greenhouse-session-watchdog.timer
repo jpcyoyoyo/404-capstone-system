@@ -1,0 +1,10 @@
+[Unit]
+Description=Greenhouse kiosk: check every minute that the desktop is up
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Greenhouse kiosk: sign the desktop back in if it has died (deploy/kiosk/session-watchdog.sh)
+After=lightdm.service
+ConditionPathExists=/etc/lightdm/lightdm.conf
+
+[Service]
+Type=oneshot
+ExecStart=/opt/greenhouse/deploy/kiosk/session-watchdog.sh

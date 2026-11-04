@@ -192,6 +192,10 @@ if [[ -n "$DESK_HOME" ]]; then
   install -d -o "$DESKTOP_USER" -g "$DESKTOP_USER" "$DESK_HOME/.config/autostart"
   install -o "$DESKTOP_USER" -g "$DESKTOP_USER" -m 644 "$REPO/deploy/kiosk/greenhouse-kiosk.desktop" "$DESK_HOME/.config/autostart/"
   echo "kiosk starts on the next desktop login of $DESKTOP_USER (enable auto-login in raspi-config)"
+  # Signs the desktop back in if it dies (an HDMI drop-out crashed labwc on 5 Nov 2026); see kiosk/session-watchdog.sh
+  cp "$REPO/deploy/systemd/greenhouse-session-watchdog.service" "$REPO/deploy/systemd/greenhouse-session-watchdog.timer" /etc/systemd/system/
+  systemctl daemon-reload
+  systemctl enable --now greenhouse-session-watchdog.timer
 fi
 # A running kiosk keeps the old page in memory: close its browser so kiosk.sh reopens the new one
 if pkill -f -- "--kiosk .*localhost:8000/kiosk" 2>/dev/null; then echo "kiosk browser restarted (back in about 5 s)"; fi
