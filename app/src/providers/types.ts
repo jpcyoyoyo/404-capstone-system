@@ -40,7 +40,7 @@ export interface EnergyView {
 
 export type CommandInput = Omit<CommandRequest, 'cmd_id' | 'ts'> & { cmd_id?: string };
 
-export interface HistoryQuery { sensor?: string; type?: string; zone?: number; from?: string; to?: string; resolution?: 'raw' | '15m' | '1h' | '1d' }
+export interface HistoryQuery { sensor?: string; type?: string; zone?: number; from?: string; to?: string; resolution?: 'raw' | '15m' | '1h' | '1d'; limit?: number }
 
 /** Everything that is fetched on demand rather than streamed. Mirrors the REST API. */
 export interface DataService {

@@ -1,22 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { IonPage, IonContent, IonSegment, IonSegmentButton, IonLabel, IonButton, IonSpinner } from '@ionic/react';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
-import LineChart, { Series } from '../components/LineChart';
+import LineChart, { ChartSeries } from '../components/LineChart';
+import PillScroller from '../components/PillScroller';
+import { RANGES, RangeId } from '../components/chartScale';
+import { PerSensor, useHistoryChart } from '../components/useHistoryChart';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
-import type { AuditEntry, EventEntry, FertilizerReport, HistoryResult, WaterDay } from '../contract/types';
+import type { AuditEntry, EventEntry, FertilizerReport, WaterDay } from '../contract/types';
 import { downloadFile, fmtDateTime, toCsv } from '../components/format';
 import { commandRefusal, doseStop, eventAction, plainDetail } from '../contract/codes';
 
 type Tab = 'environment' | 'water' | 'fertilizer' | 'activity';
 const PARAMS: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level'];
-const RANGES = [
-  { id: '24h', ms: 864e5, res: '15m' as const },
-  { id: '7d', ms: 7 * 864e5, res: '1h' as const },
-  { id: '30d', ms: 30 * 864e5, res: '1d' as const },
-];
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#14b8a6', '#ef4444', '#64748b'];
 // Commands name the device; a refused one gives the reason in words, as the toast did.
 const auditRow = (a: AuditEntry, names: Record<string, string>): { what: string; detail: string; warn: boolean } => {
@@ -39,8 +37,7 @@ const Records: React.FC = () => {
   const gh = useGreenhouse();
   const [tab, setTab] = useState<Tab>('environment');
   const [param, setParam] = useState<MetricKey>('soil_moisture');
-  const [range, setRange] = useState(RANGES[0]);
-  const [hist, setHist] = useState<HistoryResult | null>(null);
+  const [rangeId, setRangeId] = useState<RangeId>('24h');
   const [water, setWater] = useState<WaterDay[]>([]);
   const [waterDays, setWaterDays] = useState(7);
   const [fert, setFert] = useState<FertilizerReport | null>(null);
@@ -55,9 +52,7 @@ const Records: React.FC = () => {
     const done = () => { if (alive) setLoading(false); };
     const fail = (e: unknown) => { if (alive) setErr(e instanceof Error ? e.message : 'Could not load.'); };
     if (tab === 'environment') {
-      const to = new Date();
-      gh.data.history({ type: param, from: new Date(to.getTime() - range.ms).toISOString(), to: to.toISOString(), resolution: range.res })
-        .then(r => alive && setHist(r)).catch(fail).finally(done);
+      done();   // the chart loads its own history (useHistoryChart)
     } else if (tab === 'water') {
       gh.data.waterUsage(waterDays).then(r => alive && setWater(r)).catch(fail).finally(done);
     } else if (tab === 'fertilizer') {
@@ -67,12 +62,14 @@ const Records: React.FC = () => {
         .then(([e, a]) => { if (alive) { setEvents(e); setAudit(a); } }).catch(fail).finally(done);
     }
     return () => { alive = false; };
-  }, [gh.data, tab, param, range, waterDays]);
+  }, [gh.data, tab, waterDays]);
 
-  const series: Series[] = useMemo(() => Object.entries(hist?.series ?? {}).map(([sid, pts], i) => ({
-    name: sid, color: COLORS[i % COLORS.length],
-    points: pts.map(p => ({ t: Date.parse(p.ts), v: p.value })),
-  })), [hist]);
+  // One line per sensor.
+  const toSeries = useCallback((data: PerSensor): ChartSeries[] => Object.keys(data).sort().map((sid, i) => ({
+    name: sid, color: COLORS[i % COLORS.length], points: data[sid],
+  })), []);
+  const hc = useHistoryChart(gh.data.history, { type: param }, param, rangeId, toSeries);
+  const hist = hc.result;
 
   const activity = useMemo(() => {
     const names = Object.fromEntries(gh.meta.actuators.map(a => [a.id, a.name]));
@@ -86,8 +83,8 @@ const Records: React.FC = () => {
 
   const exportCsv = () => {
     if (tab === 'environment' && hist) {
-      const rows = Object.entries(hist.series).flatMap(([sid, pts]) => pts.map(p => ({ sensor_id: sid, ts: p.ts, value: p.value, min: p.min ?? '', max: p.max ?? '', samples: p.n ?? '' })));
-      downloadFile(`${param}-${range.id}-${stamp()}.csv`, toCsv(rows));
+      const rows = Object.entries(hist.series).flatMap(([sid, pts]) => pts.map(p => ({ sensor_id: sid, ts: p.ts, value: p.value, min: p.min ?? '', max: p.max ?? '', samples: p.n ?? '', quality: p.quality ?? '' })));
+      downloadFile(`${param}-${rangeId}-${hist.resolution}-${stamp()}.csv`, toCsv(rows));
     } else if (tab === 'water') downloadFile(`water-usage-${stamp()}.csv`, toCsv(water as unknown as Record<string, unknown>[]));
     else if (tab === 'fertilizer' && fert) downloadFile(`fertilizer-doses-${stamp()}.csv`, toCsv(fert.doses as unknown as Record<string, unknown>[]));
     else if (tab === 'activity') downloadFile(`activity-${stamp()}.csv`, toCsv(activity));
@@ -112,23 +109,24 @@ const Records: React.FC = () => {
           <IonSegmentButton value="fertilizer"><IonLabel>Fertilizer</IonLabel></IonSegmentButton>
           <IonSegmentButton value="activity"><IonLabel>Activity</IonLabel></IonSegmentButton>
         </IonSegment>
-        {loading && <div style={{ textAlign: 'center' }}><IonSpinner name="dots" /></div>}
-        {err && <div className="sg-banner-offline" style={{ marginBottom: 12 }}>{err}</div>}
+        {(loading || (tab === 'environment' && hc.loading)) && <div style={{ textAlign: 'center' }}><IonSpinner name="dots" /></div>}
+        {(err || (tab === 'environment' && hc.err)) && <div className="sg-banner-offline" style={{ marginBottom: 12 }}>{tab === 'environment' ? hc.err : err}</div>}
 
         {tab === 'environment' && (
           <div className="sg-card">
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 10 }}>
+            <PillScroller activeKey={param} style={{ marginBottom: 10 }}>
               {PARAMS.filter(p => gh.metrics[p].installed).map(p => (
                 <span key={p} className={`sg-filter-pill ${param === p ? 'active' : ''}`} onClick={() => setParam(p)}>{METRIC_INFO[p].short}</span>
               ))}
-            </div>
+            </PillScroller>
             <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-              {RANGES.map(r => <span key={r.id} className={`sg-filter-pill ${range.id === r.id ? 'active' : ''}`} onClick={() => setRange(r)}>{r.id}</span>)}
+              {RANGES.map(r => <span key={r.id} className={`sg-filter-pill ${rangeId === r.id ? 'active' : ''}`} onClick={() => setRangeId(r.id)}>{r.id}</span>)}
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-text)', marginBottom: 6 }}>{info.label} · each sensor</div>
-            <LineChart series={series} band={band ? { min: band.min, max: band.max } : null} unit={` ${info.unit}`} digits={info.digits} height={180} />
+            <LineChart layers={hc.layers} full={hc.full} view={hc.view} onViewChange={hc.setView} minSpan={hc.range.minSpan}
+              rangeLabel={`last ${hc.range.id}`} band={band ? { min: band.min, max: band.max } : null} unit={` ${info.unit}`} digits={info.digits} height={180} />
             <div style={{ fontSize: 10, color: 'var(--sg-dim)', marginTop: 6 }}>
-              Per-sensor averages at {range.res} resolution. Raw readings are kept 7 days (pH 30 days); older data is kept as 15-minute averages.
+              Raw readings are kept 7 days (pH 30 days); older data is kept as 15-minute averages. Export CSV saves the whole range as loaded ({hc.plan.res === 'raw' ? 'raw readings' : `${hc.plan.res} averages`}).
             </div>
           </div>
         )}

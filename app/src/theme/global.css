@@ -268,6 +268,31 @@ ion-content {
   color: #06210f;
 }
 
+/* Sideways pill rows (PillScroller): swipe, wheel or drag; no scrollbar; a fade marks hidden pills. */
+.sg-pill-scroll {
+  display: flex; gap: 6px;
+  position: relative;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.sg-pill-scroll::-webkit-scrollbar { display: none; }
+.sg-pill-scroll > * { flex-shrink: 0; }
+.sg-pill-scroll.fade-r {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.sg-pill-scroll.fade-l {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+}
+.sg-pill-scroll.fade-l.fade-r {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+.sg-pill-scroll.dragging { cursor: grabbing; }
+
 /* === Power-flow node (Energy screen) === */
 .sg-flow-node {
   background: var(--sg-elevated);

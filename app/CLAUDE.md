@@ -47,6 +47,11 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
 - New device or sensor: add it to `contract/registry.yaml`, regenerate, and the pages pick it up
   from `meta.actuators` / `meta.sensors`.
 - Styling: inline styles on `var(--sg-*)` tokens plus the `sg-*` classes in `theme/global.css`.
+- History charts: `components/LineChart.tsx` draws, `components/chartScale.ts` holds the arithmetic
+  (data plan per window, grouping at local midnight, gaps, ticks, monotone curve, zoom/pan limits;
+  tested in `chartScale.test.ts`), and `components/useHistoryChart.ts` loads the range plus finer data
+  for a zoomed window. Never join points across a gap and never smooth with a curve that can overshoot.
+- Sideways pill rows go in `components/PillScroller.tsx` (no scrollbar; swipe, wheel or drag).
 - Don't render `false`/`null` directly inside `IonRouterOutlet` (it crashes the outlet); route
   always, gate inside the page.
 

@@ -3,6 +3,7 @@ import { IonPage, IonContent, IonIcon } from '@ionic/react';
 import { useHistory } from 'react-router-dom';
 import { pulseOutline } from 'ionicons/icons';
 import PersistentHeader from '../components/PersistentHeader';
+import PillScroller from '../components/PillScroller';
 import StatusBanner from '../components/StatusBanner';
 import Sparkline from '../components/Sparkline';
 import { useAppSettings } from '../contexts/AppSettingsContext';
@@ -78,12 +79,12 @@ const LiveMonitor: React.FC = () => {
           <span style={{ fontSize: 11, color: 'var(--sg-dim)' }}>Updated {timeAgo(gh.lastUpdate)}</span>
         </div>
 
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 16, paddingBottom: 2 }}>
+        <PillScroller activeKey={zone} style={{ marginBottom: 16 }}>
           <span className={`sg-filter-pill ${zone === 'all' ? 'active' : ''}`} onClick={() => setZone('all')}>Greenhouse</span>
           {gh.meta.zones.map(z => (
             <span key={z.id} className={`sg-filter-pill ${zone === z.id ? 'active' : ''}`} onClick={() => setZone(z.id)}>{z.name}</span>
           ))}
-        </div>
+        </PillScroller>
 
         {zone === 'all' ? (
           <>

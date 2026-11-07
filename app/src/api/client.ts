@@ -98,7 +98,7 @@ export class ApiClient {
   // live
   meta() { return this.request<GreenhouseMeta>('GET', '/greenhouse'); }
   live(gid: string) { return this.request<LiveSnapshot>('GET', `/greenhouse/${gid}/live`); }
-  history(gid: string, q: { sensor?: string; type?: string; zone?: number; from?: string; to?: string; resolution?: string }) {
+  history(gid: string, q: { sensor?: string; type?: string; zone?: number; from?: string; to?: string; resolution?: string; limit?: number }) {
     const p = new URLSearchParams();
     Object.entries(q).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') p.set(k, String(v)); });
     return this.request<HistoryResult>('GET', `/greenhouse/${gid}/history?${p.toString()}`);
