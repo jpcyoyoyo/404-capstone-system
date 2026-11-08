@@ -119,6 +119,7 @@ const MetricDetail: React.FC = () => {
           </div>
           {err ? <div style={{ fontSize: 12, color: 'var(--sg-muted)' }}>{err}</div>
             : <LineChart layers={hc.layers} full={hc.full} view={hc.view} onViewChange={hc.setView} minSpan={hc.range.minSpan}
+                resetKey={hc.resetKey} updated={{ at: hc.updatedAt, everyMs: hc.range.refresh }}
                 rangeLabel={`last ${hc.range.id}`} band={m.band} unit={` ${m.unit}`} digits={info.digits} />}
           {gh.mode === 'demo' && <div style={{ fontSize: 10, color: 'var(--sg-dim)', marginTop: 6 }}>Demo history is synthetic.</div>}
         </div>

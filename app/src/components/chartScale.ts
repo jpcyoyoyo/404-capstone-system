@@ -14,11 +14,12 @@ export interface View { t0: number; t1: number }
 export type Resolution = 'raw' | '15m' | '1h' | '1d';
 
 /** The ranges offered by the pills, and how far each may be zoomed in. */
+/** `refresh`: how often an open chart reloads (the nodes publish every 30 s). */
 export const RANGES = [
-  { id: '6h', ms: 6 * HOUR, minSpan: 30 * MIN },
-  { id: '24h', ms: DAY, minSpan: HOUR },
-  { id: '7d', ms: 7 * DAY, minSpan: 6 * HOUR },
-  { id: '30d', ms: 30 * DAY, minSpan: DAY },
+  { id: '6h', ms: 6 * HOUR, minSpan: 30 * MIN, refresh: 30_000 },
+  { id: '24h', ms: DAY, minSpan: HOUR, refresh: 30_000 },
+  { id: '7d', ms: 7 * DAY, minSpan: 6 * HOUR, refresh: 2 * MIN },
+  { id: '30d', ms: 30 * DAY, minSpan: DAY, refresh: 5 * MIN },
 ] as const;
 export type RangeId = typeof RANGES[number]['id'];
 
@@ -276,3 +277,17 @@ export const panBy = (v: View, dt: number, full: View, minSpan: number): View =>
 
 /** True when the view shows (nearly) the whole range. */
 export const isFull = (v: View, full: View) => (v.t1 - v.t0) >= (full.t1 - full.t0) * 0.999;
+
+/**
+ * Where a zoomed window goes when the range moves forward to a newer "now" (auto-refresh).
+ * A window that reached the old right edge follows the new data; any other window stays on the
+ * same times (only nudged if its start has slid out of the range). The span never changes.
+ */
+export function followView(v: View | null, oldFull: View, newFull: View, minSpan: number): View | null {
+  if (!v) return null;
+  const span = v.t1 - v.t0;
+  const atEnd = oldFull.t1 - v.t1 <= Math.max(1000, span * 0.02);
+  const shift = atEnd ? newFull.t1 - oldFull.t1 : 0;
+  const next = clampView({ t0: v.t0 + shift, t1: v.t1 + shift }, newFull, minSpan);
+  return isFull(next, newFull) ? null : next;
+}

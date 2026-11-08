@@ -23,12 +23,18 @@ interface Props {
   height?: number;
   unit?: string;
   digits?: number;
+  /** Changes only with a new metric or range: then the chart starts un-zoomed. */
+  resetKey?: string;
+  /** Auto-refresh: when the data was last loaded (ms) and how often it reloads. */
+  updated?: { at: number | null; everyMs: number };
 }
 
 const FONT = 10;
 const textW = (s: string) => s.length * 5.8 + 2;
 const T = 10; const B = 22;
 const coarse = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+
+const fmtEvery = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`);
 
 /** Last point at or before t … first after; returns the nearest one. */
 function nearest(pts: Pt[], t: number): Pt | null {
@@ -52,7 +58,7 @@ function windowed(pts: Pt[], t0: number, t1: number): Pt[] {
  * min–max band, the target band, and the latest value. Pinch / wheel to zoom, swipe / drag to
  * move, double-tap to zoom in or back out, tap / hover for the crosshair.
  */
-const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan, rangeLabel, band, height = 170, unit = '', digits = 1 }) => {
+const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan, rangeLabel, band, height = 170, unit = '', digits = 1, resetKey, updated }) => {
   const H = height;
   const clip = `clip${useId().replace(/:/g, '')}`;
   const box = useRef<HTMLDivElement>(null);
@@ -72,8 +78,10 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
     return () => ro.disconnect();
   }, []);
 
-  // A new range or metric starts un-zoomed.
-  useEffect(() => { setLive(null); setFrozen(null); setCross(null); }, [full.t0, full.t1]);
+  // A new range or metric starts un-zoomed. An auto-refresh only moves `full` forward (same
+  // span), so it keeps the zoom, a gesture in progress and the crosshair.
+  const fullSpan = full.t1 - full.t0;
+  useEffect(() => { setLive(null); setFrozen(null); setCross(null); }, [resetKey, fullSpan]);
 
   const cur = live ?? view ?? full;
   const span = cur.t1 - cur.t0;
@@ -393,6 +401,12 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
         {!zoomed && firstT !== null && firstT > full.t0 + (full.t1 - full.t0) * 0.05 ? `Data from ${fmtStamp(firstT, Math.max(full.t1 - full.t0, 3 * 864e5))}. ` : ''}
         {zoomed ? (coarse() ? 'Swipe to move, double-tap to zoom out.' : 'Drag to move, double-click to zoom out.') : (coarse() ? 'Pinch or double-tap to zoom.' : 'Scroll or double-click to zoom.')}
       </div>
+      {updated && (
+        <div style={{ fontSize: 10, color: 'var(--sg-dim)', marginTop: 2 }}>
+          Updates every {fmtEvery(updated.everyMs)}{updated.at !== null ? ` · last ${new Date(updated.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : ''}.
+          {zoomed && (cur.t1 >= full.t1 - Math.max(1000, span * 0.02) ? ' The zoomed view follows new readings.' : ' The zoomed view stays put; new readings are added at the right end.')}
+        </div>
+      )}
       </>}
     </div>
   );

@@ -1,5 +1,5 @@
 import {
-  DAY, HOUR, MIN, bandPath, clampView, gapFor, groupPoints, isFull, localMidnight, monotonePath, niceAxis, panBy,
+  DAY, HOUR, MIN, bandPath, clampView, followView, gapFor, groupPoints, isFull, localMidnight, monotonePath, niceAxis, panBy,
   pickLabels, planFor, splitGaps, timeTicks, toPoints, zoomAt,
 } from './chartScale';
 
@@ -137,4 +137,20 @@ describe('zoom and pan', () => {
     expect(clampView({ t0: at(6, 12), t1: at(6, 12, 10) }, full, minSpan).t1 - at(6, 12) >= 0).toBe(true);
   });
   it('localMidnight', () => { expect(localMidnight(at(6, 17, 29))).toBe(at(6)); });
+});
+
+describe('auto-refresh keeps the zoom (followView)', () => {
+  const minSpan = 30 * MIN;
+  const old = { t0: at(6, 11), t1: at(6, 17) };
+  const next = { t0: at(6, 11, 1), t1: at(6, 17, 1) };   // one minute later
+  it('leaves the whole range un-zoomed', () => { expect(followView(null, old, next, minSpan)).toBeNull(); });
+  it('a window at the right edge follows the new readings', () => {
+    expect(followView({ t0: at(6, 16), t1: at(6, 17) }, old, next, minSpan)).toEqual({ t0: at(6, 16, 1), t1: at(6, 17, 1) });
+  });
+  it('any other window stays on the same times and keeps its span', () => {
+    expect(followView({ t0: at(6, 13), t1: at(6, 14) }, old, next, minSpan)).toEqual({ t0: at(6, 13), t1: at(6, 14) });
+  });
+  it('a window whose start slid out of the range is nudged in, same span', () => {
+    expect(followView({ t0: at(6, 11), t1: at(6, 12) }, old, next, minSpan)).toEqual({ t0: at(6, 11, 1), t1: at(6, 12, 1) });
+  });
 });

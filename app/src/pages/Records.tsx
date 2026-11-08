@@ -124,6 +124,7 @@ const Records: React.FC = () => {
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-text)', marginBottom: 6 }}>{info.label} · each sensor</div>
             <LineChart layers={hc.layers} full={hc.full} view={hc.view} onViewChange={hc.setView} minSpan={hc.range.minSpan}
+              resetKey={hc.resetKey} updated={{ at: hc.updatedAt, everyMs: hc.range.refresh }}
               rangeLabel={`last ${hc.range.id}`} band={band ? { min: band.min, max: band.max } : null} unit={` ${info.unit}`} digits={info.digits} height={180} />
             <div style={{ fontSize: 10, color: 'var(--sg-dim)', marginTop: 6 }}>
               Raw readings are kept 7 days (pH 30 days); older data is kept as 15-minute averages. Export CSV saves the whole range as loaded ({hc.plan.res === 'raw' ? 'raw readings' : `${hc.plan.res} averages`}).
