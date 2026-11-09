@@ -18,5 +18,10 @@
 #define WIFI2_PASS     ""
 #define MQTT_HOST2     "10.42.0.1"
 
+// Wireless debugging (network log on port 23 and OTA uploads). 8 characters or more; use a password of
+// its own (not the Wi-Fi or MQTT password) and keep it in the password manager. Leave the line out to
+// turn both off.
+#define OTA_PASS       "change-me-too"
+
 #define GH_ID          "gh1"               // greenhouse.id in contract/registry.yaml
 #define PUBLISH_MS     30000UL             // nodes[].publish_interval_s × 1000
