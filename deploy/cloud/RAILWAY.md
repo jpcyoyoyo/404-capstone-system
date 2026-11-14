@@ -64,6 +64,8 @@ GitHub, and a terminal on the Pi.
    `setup` asks for the sync token (paste the one from step 4; nothing shows while typing), tests
    it and saves it. Pass when `status` shows health `ok` and a recent last upload (it can take a
    minute or two after setup). The app's **More → Settings → Cloud** should show **Connected**.
+   About a minute after the first upload, `/health` on the cloud shows `"controller_online": true`
+   (the greenhouse controller's heartbeat travels up with the settings once a minute).
 
 The accounts on the Pi are copied to the cloud with the first sync, so the same sign-ins work
 there. No account has to be created on Railway.
@@ -78,6 +80,7 @@ there. No account has to be created on Railway.
 | `/health` works but `cloud setup` says the token is wrong | `GH_SYNC_TOKEN` differs from what was typed on the Pi | Run `sudo ghctl cloud setup …` again with the token in Railway |
 | Sign-in on the cloud fails with a valid Pi account | `GH_JWT_SECRET` differs from the Pi's, or the first sync has not run | Copy the secret again (step 4); wait for `cloud status` to show an upload |
 | `cloud status` shows **NOT REACHABLE** with *The read operation timed out* soon after setup, while `/health` answers | The first upload carries the Pi's whole backlog, and before 14 Nov 2026 the server saved it one row at a time (4,000 database calls per 2,000 readings), which took longer than the Pi waits | Fixed 14 Nov 2026 (rows saved in bulk, the Pi waits up to 120 s, accounts and settings go first). Push, wait for Railway to redeploy, then on the Pi `git pull` and `sudo bash ./deploy/pi-setup.sh`. Uploads carry on from where they stopped |
+| Uploads work, but `/health` on the cloud always shows `"controller_online": false` and the app on the cloud path says *The control service is not reporting* | Before 14 Nov 2026 the cloud only learnt the controller's state over MQTT, which it does not have, so it always said offline (and showed readings as stale) | Fixed 14 Nov 2026 (the heartbeat is uploaded with the settings; the cloud allows two sync intervals of delay). Push, wait for Railway to redeploy, then on the Pi `git pull` and `sudo bash ./deploy/pi-setup.sh`. If it still says false, check `systemctl status greenhouse-control` on the Pi |
 | Controller raises `CLOUD_UNREACHABLE` | No upload for 30 minutes: Pi offline, or the Railway service stopped (check credit) | Data stays on the Pi and uploads resume by themselves once the server is back |
 
 ## Stopping it after the demo

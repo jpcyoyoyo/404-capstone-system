@@ -5,6 +5,7 @@ replica. OpenAPI docs are generated at /docs.
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import uuid
@@ -355,7 +356,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
     # ── meta and live ───────────────────────────────────────────────────
     @app.get("/health", tags=["meta"])
     def health():
-        st = cache.status
+        st = controller_status()
         age = None
         if st.get("ts"):
             age = (utcnow() - (parse_iso(st["ts"]) or utcnow())).total_seconds()
@@ -376,7 +377,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         return {
             "id": reg.greenhouse_id, "name": reg.greenhouse_name, "timezone": reg.timezone, "role": settings.role,
             "capabilities": {**reg.capabilities, "remote_commands": reg.capabilities.get("remote_commands", False) if is_cloud else True},
-            "network_mode": cache.status.get("network_mode", settings.network_mode),
+            "network_mode": controller_status().get("network_mode", settings.network_mode),
             "active_stage": db.kv_get(DEFAULT_STAGE_KEY), "active_preset": presetmod.active_info(db), "stages": stage_list,
             "stage_schedule": stagemod.info(db, reg),
             "zones": [{"id": z.id, "name": z.name, "description": z.description} for z in reg.zones],
@@ -409,11 +410,12 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
                                              "unit": r.unit, "raw": r.raw, "quality": r.quality, "ts": iso(r.recorded_at)}
         # Age out: a reading older than 3 cycles is shown as STALE, never as live.
         stale_s = 3 * max(30.0, float(reg.control.get("cycle_s", 30)))
+        sync_lag_s = 2 * settings.sync_interval_s if is_cloud else 0.0   # the cloud gets readings once a minute
         now = utcnow()
         for sid, p in readings.items():
             ts = parse_iso(p.get("ts"))
             sd = reg.sensor(sid) if reg.has_sensor(sid) else None
-            limit = stale_s * max(1, (sd.interval_s if sd else 30) / 30)
+            limit = stale_s * max(1, (sd.interval_s if sd else 30) / 30) + sync_lag_s
             if ts and (now - ts).total_seconds() > limit and p.get("quality") != "STALE":
                 readings[sid] = {**p, "quality": "STALE", "value": None, "last_value": p.get("value")}
         return readings
@@ -437,10 +439,21 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         return out
 
     def controller_status() -> dict:
-        st = dict(cache.status)
+        """The control service's heartbeat. On the Pi it arrives over MQTT; the cloud has no MQTT link,
+        so it reads the copy greenhouse-sync uploads with the settings and allows for the upload delay."""
+        grace = 0.0
+        if is_cloud:
+            try:
+                st = json.loads(db.kv_get(cloudmod.CONTROLLER_STATUS_KEY) or "{}")
+            except ValueError:
+                st = {}
+            grace = 2 * settings.sync_interval_s
+        else:
+            st = dict(cache.status)
         ts = parse_iso(st.get("ts"))
         cycle = float(st.get("cycle_s") or reg.control.get("cycle_s", 30))
-        st["online"] = bool(st.get("online")) and ts is not None and (utcnow() - ts).total_seconds() < 3 * cycle + 5
+        st["online"] = (bool(st.get("online")) and ts is not None
+                        and (utcnow() - ts).total_seconds() < 3 * cycle + 5 + grace)
         return st
 
     @app.get("/greenhouse/{gid}/live", tags=["live"])

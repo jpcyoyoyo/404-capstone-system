@@ -32,6 +32,10 @@ URL_KEY = "cloud:url"
 TOKEN_KEY = "cloud:token"
 STATUS_KEY = "cloud:status"
 PREFIX = "cloud:"
+# The control service's heartbeat, copied into the database every cycle so it travels to the cloud
+# with the other settings (it must not start with PREFIX, which stays on the Pi). The cloud has no
+# MQTT link to the Pi, so this is how it knows whether the greenhouse controller is running.
+CONTROLLER_STATUS_KEY = "controller:status"
 STALE_AFTER = timedelta(minutes=30)
 _URL_RE = re.compile(r"^https?://[A-Za-z0-9.\-]+(:\d{1,5})?(/[^\s]*)?$")
 

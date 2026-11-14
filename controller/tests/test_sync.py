@@ -79,3 +79,34 @@ def test_status_shows_progress_while_a_pass_is_still_running(tmp_path, monkeypat
     assert st["last_ok_at"] is not None                     # earlier requests were recorded
     assert "timed out" in st["last_error"]
     assert pi.db.kv_get("sync:sensor_readings") is not None   # and the watermark kept them
+
+
+def test_cloud_knows_whether_the_greenhouse_controller_is_running(tmp_path, monkeypatch):
+    """The cloud has no MQTT link to the Pi: the control heartbeat travels with the settings.
+    Before 14 Nov 2026 /health on the cloud always said controller_online false."""
+    from greenhouse import cloud as cloudmod
+    from greenhouse.services import api as apimod
+    pi = Rig(tmp_path); cloud = Rig(tmp_path, role="cloud")
+    assert cloud.client.get("/health").json()["controller_online"] is False      # nothing uploaded yet
+    pi.cycle()                                                                    # control publishes its heartbeat
+    assert pi.db.kv_get(cloudmod.CONTROLLER_STATUS_KEY)
+
+    def post(table, rows):
+        r = cloud.client.post("/sync/ingest", json={"table": table, "rows": rows}, headers={"Authorization": "Bearer sync-tok"})
+        assert r.status_code == 200, r.text
+
+    SyncService(pi.db, "http://cloud", "sync-tok", post=post).sync_once()
+    assert cloud.client.get("/health").json()["controller_online"] is True
+    live = cloud.client.get("/greenhouse/gh1/live", headers=cloud.login()).json()
+    assert live["controller"]["online"] is True
+    soil = live["readings"]["soil_z1_01"]
+    assert soil["quality"] == "VALID" and soil["value"] is not None
+
+    # two minutes later (one sync interval behind the Pi) the values still show, not STALE
+    later = utcnow() + timedelta(seconds=150)
+    monkeypatch.setattr(apimod, "utcnow", lambda: later)
+    live = cloud.client.get("/greenhouse/gh1/live", headers=cloud.login()).json()
+    assert live["controller"]["online"] is True and live["readings"]["soil_z1_01"]["quality"] == "VALID"
+    # the control service stopped: no new heartbeat, so the cloud says so once the grace runs out
+    later = utcnow() + timedelta(seconds=400)
+    assert cloud.client.get("/health").json()["controller_online"] is False

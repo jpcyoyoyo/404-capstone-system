@@ -5,6 +5,7 @@ and interlocks, drives actuators, raises alerts."
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -15,6 +16,7 @@ from sqlalchemy import select, update
 
 from .. import messages as M
 from ..bus import Bus, Topics
+from ..cloud import CONTROLLER_STATUS_KEY
 from ..control.engine import CommandIn, CommandResult, ControlEngine, TickResult
 from ..control.types import AlertSignal, Band, Change, Reading
 from ..db import Database
@@ -243,10 +245,14 @@ class ControlService:
                 zones[t] = {"value": ps.value, "manual_required": ps.manual_required_zones,
                             "zones": {str(z): {"median": zv.median, "valid": zv.n_valid, "total": zv.n_total}
                                       for z, zv in ps.zones.items()}}
-        self.bus.publish(self.topics.status, {"online": True, "service": "control", "ts": iso(now),
-                                              "active_stage": stage, "network_mode": self._network_mode(),
-                                              "cycle_s": self.cycle_s, "params": zones,
-                                              "nodes": dict(self.engine.node_online)}, retain=True, qos=1)
+        status = {"online": True, "service": "control", "ts": iso(now), "active_stage": stage,
+                  "network_mode": self._network_mode(), "cycle_s": self.cycle_s, "params": zones,
+                  "nodes": dict(self.engine.node_online)}
+        self.bus.publish(self.topics.status, status, retain=True, qos=1)
+        try:   # the cloud's copy of the heartbeat (greenhouse-sync carries it up with the settings)
+            self.db.kv_set(CONTROLLER_STATUS_KEY, json.dumps(status))
+        except Exception:
+            log.exception("could not save the controller status for the cloud")
 
     # ── commands ─────────────────────────────────────────────────────────
     def _on_cmd(self, topic: str, p: dict) -> None:
