@@ -77,6 +77,7 @@ there. No account has to be created on Railway.
 | Deploy log: `Access denied` | `GH_DATABASE_URL` edited by hand | Paste the line from `railway.env.example` again |
 | `/health` works but `cloud setup` says the token is wrong | `GH_SYNC_TOKEN` differs from what was typed on the Pi | Run `sudo ghctl cloud setup …` again with the token in Railway |
 | Sign-in on the cloud fails with a valid Pi account | `GH_JWT_SECRET` differs from the Pi's, or the first sync has not run | Copy the secret again (step 4); wait for `cloud status` to show an upload |
+| `cloud status` shows **NOT REACHABLE** with *The read operation timed out* soon after setup, while `/health` answers | The first upload carries the Pi's whole backlog, and before 14 Nov 2026 the server saved it one row at a time (4,000 database calls per 2,000 readings), which took longer than the Pi waits | Fixed 14 Nov 2026 (rows saved in bulk, the Pi waits up to 120 s, accounts and settings go first). Push, wait for Railway to redeploy, then on the Pi `git pull` and `sudo bash ./deploy/pi-setup.sh`. Uploads carry on from where they stopped |
 | Controller raises `CLOUD_UNREACHABLE` | No upload for 30 minutes: Pi offline, or the Railway service stopped (check credit) | Data stays on the Pi and uploads resume by themselves once the server is back |
 
 ## Stopping it after the demo
