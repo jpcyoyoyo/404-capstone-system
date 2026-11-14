@@ -17,7 +17,14 @@
   #include "config.h"
 #endif
 
-#define FW_VERSION "2026-11-09 (network log + OTA)"
+#define FW_VERSION "2026-11-11 (network log + OTA, ESP32 tx 8.5 dBm)"
+
+// ESP32 only: transmit power. The default (about 19.5 dBm) draws current peaks of about 240 mA in
+// each transmit burst; 8.5 dBm lowers them. Test of 11 Nov 2026 for Node B's broker drops (A12 T9).
+// Comment the line out to go back to the default.
+#if defined(ESP32)
+#define WIFI_TX_POWER WIFI_POWER_8_5dBm
+#endif
 
 #if defined(ESP32)
   #include <WiFi.h>
@@ -169,6 +176,9 @@ void connectWifi() {
 #endif
   WiFi.disconnect();
   WiFi.begin(ssid, pass);
+#if defined(ESP32) && defined(WIFI_TX_POWER)
+  WiFi.setTxPower(WIFI_TX_POWER);          // after begin(): the radio must be started first
+#endif
   Log.printf("wifi: connecting to %s", ssid);
   for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; i++) { delay(500); Log.print('.'); }
   if (WiFi.status() == WL_CONNECTED) {
@@ -307,7 +317,12 @@ void cmdStatus() {
              (unsigned)ESP.getFreeHeap(), (int)esp_reset_reason());
 #endif
   if (WiFi.status() == WL_CONNECTED)
+  {
     Log.printf("wifi: %s, ip %s, rssi %d dBm\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
+#if defined(ESP32)
+    Log.printf("wifi: tx power %.2f dBm\n", (int)WiFi.getTxPower() / 4.0);   // reported in 0.25 dBm steps
+#endif
+  }
   else
     Log.println("wifi: not connected");
   Log.printf("mqtt: %s %s:%d, last seq %lu, every %lu s\n", mqtt.connected() ? "connected to" : "NOT connected to",
