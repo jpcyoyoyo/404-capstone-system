@@ -52,6 +52,15 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
   tested in `chartScale.test.ts`), and `components/useHistoryChart.ts` loads the range plus finer data
   for a zoomed window. Never join points across a gap and never smooth with a curve that can overshoot.
 - Sideways pill rows go in `components/PillScroller.tsx` (no scrollbar; swipe, wheel or drag).
+- Motion: speeds, easing and every keyframe live in `theme/motion.css`; all of it switches off under
+  `prefers-reduced-motion` or App Settings → Reduce motion (`html.sg-reduce-motion`). A changing reading
+  uses `<LiveValue>` (slides in; never counts through values that were not read) and a tile `<FlashBox>`;
+  `components/useChangeCount.ts` replays an animation only when the shown text changes. Loading uses
+  `<Skeleton>` / `<SkeletonRows>` from `components/motion.tsx`. Command buttons show `<Sending />` and
+  `<CommandBadge>` (`components/CommandStatus.tsx`) with `useCommand().feedback(id)` on the row; the
+  Android app vibrates through `components/haptics.ts` (native only). The history chart wipes in once
+  per metric or range (`drawN` in `LineChart.tsx`), never on a refresh or zoom. Don't declare a
+  component inside another component's body: it remounts on every render and replays its animations.
 - Don't render `false`/`null` directly inside `IonRouterOutlet` (it crashes the outlet); route
   always, gate inside the page.
 

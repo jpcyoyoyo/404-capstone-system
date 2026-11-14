@@ -54,7 +54,7 @@ const AppSettings: React.FC = () => {
   /* Appearance & Display — backed by AppSettingsContext so changes apply
      instantly app-wide and persist across sessions (light is the default). */
   const {
-    theme, setTheme, accent, setAccent, fontSize, setFontSize, density, setDensity,
+    theme, setTheme, accent, setAccent, fontSize, setFontSize, density, setDensity, reduceMotion, setReduceMotion,
     units, setUnits, numFmt, setNumFmt, timezone, setTimezone, dateFmt, setDateFmt,
     showKpi, setShowKpi, showActions, setShowActions, showEnergy, setShowEnergy,
     showFertilizer, setShowFertilizer,
@@ -129,6 +129,10 @@ const AppSettings: React.FC = () => {
 
           <SettingRow label="Card Density" sub="How much information fits on screen">
             <ChipGroup<Density> options={['compact', 'normal', 'comfortable']} value={density} onChange={setDensity} />
+          </SettingRow>
+
+          <SettingRow label="Reduce motion" sub="Turns off animations; also off when the phone's own reduce-motion setting is on">
+            <IonToggle checked={reduceMotion} onIonChange={e => setReduceMotion(e.detail.checked)} aria-label="Reduce motion" />
           </SettingRow>
 
           {/* Live preview */}

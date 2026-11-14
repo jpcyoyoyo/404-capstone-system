@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { IonPage, IonContent, IonButton, IonIcon, IonSpinner, useIonToast } from '@ionic/react';
+import { IonPage, IonContent, IonButton, IonIcon, useIonToast } from '@ionic/react';
 import { useParams, useHistory } from 'react-router-dom';
 import { checkmarkCircle, bulbOutline } from 'ionicons/icons';
 import PersistentHeader from '../components/PersistentHeader';
@@ -10,6 +10,7 @@ import { alertTitle, SUGGESTED_ACTIONS } from '../contract/codes';
 import { fmtDateTime } from '../components/format';
 import { formatMetric, METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
+import { Skeleton, SkeletonRows } from '../components/motion';
 import { SEV_COLOR, SEV_ICON } from './Alerts';
 
 const AlertDetail: React.FC = () => {
@@ -45,7 +46,7 @@ const AlertDetail: React.FC = () => {
   };
 
   if (loading) {
-    return <IonPage><PersistentHeader showBack defaultHref="/tabs/alerts" /><IonContent className="ion-padding"><IonSpinner name="dots" /></IonContent></IonPage>;
+    return <IonPage><PersistentHeader showBack defaultHref="/tabs/alerts" /><IonContent className="ion-padding"><div className="sg-card"><Skeleton w="55%" h={16} /><div style={{ height: 12 }} /><SkeletonRows rows={2} /></div></IonContent></IonPage>;
   }
   if (!alert) {
     return (

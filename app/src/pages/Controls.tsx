@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { IonPage, IonContent, IonButton, IonIcon, IonSpinner, useIonActionSheet, useIonAlert } from '@ionic/react';
+import { IonPage, IonContent, IonButton, IonIcon, useIonActionSheet, useIonAlert } from '@ionic/react';
 import { useHistory } from 'react-router-dom';
 import { powerOutline, informationCircleOutline, lockClosedOutline, chevronDown, chevronUp } from 'ionicons/icons';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { useCommand } from '../components/useCommand';
+import { CommandBadge, Sending } from '../components/CommandStatus';
 import { ACTUATOR_ICON } from '../components/display';
 import { fmtTime, untilText } from '../components/format';
 import { LOCK_PILL, plainDetail, reasonText } from '../contract/codes';
@@ -18,7 +19,7 @@ const COMPONENTS = ['pump', 'valve_fog', 'valve_drip', 'valve_sprinkler', 'servo
 const Controls: React.FC = () => {
   const gh = useGreenhouse();
   const history = useHistory();
-  const { send, busy, blocked } = useCommand();
+  const { send, busy, blocked, result, feedback } = useCommand();
   const [sheet] = useIonActionSheet();
   // A second sheet controller for durations: one hook can show only one sheet at a time, so the
   // duration sheet opened from the circuit sheet (Water now) would otherwise never appear.
@@ -69,7 +70,9 @@ const Controls: React.FC = () => {
   const lockout = (st: ActuatorState | undefined, def: ActuatorDef) =>
     !def.installed ? 'Not installed' : st?.lockout ? reasonText(st.lockout) : def.manual_only ? reasonText('MANUAL_ONLY') : null;
 
-  const DeviceRow: React.FC<{ def: ActuatorDef }> = ({ def }) => {
+  // A plain function, not a component: a component declared in here would be a new type on every
+  // render, so React would remount the row (and replay its animations) every few seconds.
+  const deviceRow = (def: ActuatorDef) => {
     const st = gh.actuators[def.id];
     const lock = lockout(st, def);
     const manual = st?.mode === 'MANUAL';
@@ -91,14 +94,15 @@ const Controls: React.FC = () => {
               : st?.reason ? `${plainDetail(st.reason)}${st.since ? ` · ${fmtTime(st.since)}` : ''}` : 'Automatic'}
           </div>
           {def.installed && !def.manual_only && def.kind !== 'dosing_pump' && (
-            <div className="sg-row sg-gap-8" style={{ marginTop: 8 }}>
-              {busy === def.id ? <IonSpinner name="dots" /> : <>
+            <div className={`sg-row sg-gap-8 ${feedback(def.id)}`} style={{ marginTop: 8, flexWrap: 'wrap' }}>
+              {busy === def.id ? <Sending /> : <>
                 <IonButton size="small" fill={st?.on && manual ? 'solid' : 'outline'} disabled={disabled || locked}
                   onClick={() => pickDuration(`Turn ${def.name} on for how long?`, s => send({ actuator_id: def.id, action: 'ON', duration_s: s }))}>On</IonButton>
                 <IonButton size="small" fill={!st?.on && manual ? 'solid' : 'outline'} color="medium" disabled={disabled}
                   onClick={() => pickDuration(`Hold ${def.name} off for how long?`, s => send({ actuator_id: def.id, action: 'OFF', duration_s: s }))}>Off</IonButton>
                 <IonButton size="small" fill={!manual ? 'solid' : 'outline'} color="success" disabled={disabled || !manual}
                   onClick={() => send({ actuator_id: def.id, action: 'AUTO' })}>Auto</IonButton>
+                <CommandBadge id={def.id} result={result} />
               </>}
             </div>
           )}
@@ -157,13 +161,14 @@ const Controls: React.FC = () => {
                 : irr?.on ? `${plainDetail(irr.reason) || `Running on the ${irr.circuit} circuit`}${irr.since || irr.ts ? ` since ${fmtTime(irr.since ?? irr.ts)}` : ''}${irrManual && irr.manual_until ? ` · ${untilText(irr.manual_until)}` : ''}`
                 : `Starts when soil moisture drops below ${gh.thresholds.soil_moisture?.min ?? '—'}% (now ${gh.metrics.soil_moisture.value?.toFixed(0) ?? '—'}%).`}
             </div>
-            {busy === 'irrigation' ? <IonSpinner name="dots" /> : (
-              <div className="sg-row sg-gap-8">
+            {busy === 'irrigation' ? <Sending /> : (
+              <div className={`sg-row sg-gap-8 ${feedback('irrigation')}`} style={{ flexWrap: 'wrap' }}>
                 <IonButton size="small" disabled={!!blocked || !!irrLock || busy !== null} onClick={waterNow}>Water now</IonButton>
                 <IonButton size="small" color="medium" fill="outline" disabled={!!blocked || busy !== null}
                   onClick={() => pickDuration('Hold irrigation off for how long?', s => send({ actuator_id: 'irrigation', action: 'OFF', duration_s: s }))}>Stop</IonButton>
                 <IonButton size="small" color="success" fill={irrManual ? 'solid' : 'outline'} disabled={!!blocked || !irrManual || busy !== null}
                   onClick={() => send({ actuator_id: 'irrigation', action: 'AUTO' })}>Auto</IonButton>
+                <CommandBadge id="irrigation" result={result} />
               </div>
             )}
             <div className="sg-row-between" style={{ marginTop: 12, cursor: 'pointer' }} onClick={() => setShowParts(v => !v)}>
@@ -192,7 +197,7 @@ const Controls: React.FC = () => {
         {[...groups.entries()].map(([g, defs]) => (
           <div key={g} className="sg-card">
             <div className="sg-section-title">{GROUP_TITLE[g] ?? g}</div>
-            {defs.map(d => <DeviceRow key={d.id} def={d} />)}
+            {defs.map(d => <React.Fragment key={d.id}>{deviceRow(d)}</React.Fragment>)}
             {g === 'fertigation' && (
               <IonButton size="small" fill="clear" onClick={() => history.push('/tabs/fertigation')}>Dose fertilizer →</IonButton>
             )}
@@ -204,12 +209,14 @@ const Controls: React.FC = () => {
             <input type="checkbox" checked={estopChecked} onChange={e => setEstopChecked(e.target.checked)} style={{ width: 16, height: 16 }} />
             <span style={{ fontSize: 12, color: '#fca5a5' }}>I understand this stops every device and holds it in manual</span>
           </div>
+          <div className={feedback('all')} style={{ borderRadius: 12 }}>
           <IonButton expand="block" disabled={!estopChecked || !!blocked || busy !== null}
             onClick={async () => { await send({ actuator_id: 'all', action: 'ESTOP', reason: 'ESTOP' }); setEstopChecked(false); }}
             style={{ '--background': estopChecked ? '#ef4444' : 'rgba(239,68,68,0.2)', '--color': '#fff', '--border-radius': '12px', fontWeight: 800, height: 48 }}>
             <IonIcon icon={powerOutline} slot="start" />
-            EMERGENCY STOP
+            {busy === 'all' ? 'Stopping…' : 'Emergency stop'}
           </IonButton>
+          </div>
           <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 8, textAlign: 'center' }}>
             The controller keeps running its safety rules even if this phone disconnects.
           </div>

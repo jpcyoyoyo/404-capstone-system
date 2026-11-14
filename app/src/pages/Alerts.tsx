@@ -7,6 +7,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import type { AlertItem, AlertSeverity } from '../contract/types';
 import { alertTitle } from '../contract/codes';
+import { SkeletonRows } from '../components/motion';
 import { timeAgo } from '../components/format';
 
 export const SEV_ICON: Record<AlertSeverity, string> = { critical: alertCircle, high: alertCircle, medium: warningOutline, low: informationCircleOutline };
@@ -45,7 +46,7 @@ const Alerts: React.FC = () => {
         <StatusBanner />
         <div className="sg-row-between" style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--sg-text)' }}>Alerts</div>
-          {loading && <IonSpinner name="dots" />}
+          {loading && items.length > 0 && <IonSpinner name="dots" />}
         </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
           {FILTERS.map(f => (
@@ -55,9 +56,10 @@ const Alerts: React.FC = () => {
           ))}
         </div>
         {err && <div className="sg-banner-offline" style={{ marginBottom: 12 }}>{err}</div>}
+        {loading && !err && items.length === 0 && <div className="sg-card"><SkeletonRows rows={3} /></div>}
         {!loading && !err && items.length === 0 && (
           <div className="sg-card" style={{ textAlign: 'center', padding: 24 }}>
-            <IonIcon icon={checkmarkCircle} style={{ fontSize: 30, color: '#22c55e' }} />
+            <IonIcon className="sg-pop" icon={checkmarkCircle} style={{ fontSize: 30, color: '#22c55e' }} />
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)', marginTop: 6 }}>Nothing here</div>
             <div style={{ fontSize: 12, color: 'var(--sg-muted)' }}>{filter === 'Open' ? 'No open alerts right now.' : 'No alerts match this filter.'}</div>
           </div>

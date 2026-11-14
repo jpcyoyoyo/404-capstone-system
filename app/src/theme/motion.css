@@ -1,0 +1,160 @@
+/* SmartGreenhouse motion and finishing touches.
+   One place for speeds and easing so every animation feels the same.
+   Everything here switches off when the phone asks for reduced motion
+   (prefers-reduced-motion) or the Reduce motion setting is on (html.sg-reduce-motion). */
+
+:root {
+  --sg-dur-1: 120ms;   /* presses, colour changes */
+  --sg-dur-2: 220ms;   /* values, pills, small pop-ins */
+  --sg-dur-3: 360ms;   /* cards entering, sheets */
+  --sg-ease: cubic-bezier(0.2, 0.8, 0.2, 1);        /* quick start, soft landing */
+  --sg-ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --sg-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 10px rgba(15, 23, 42, 0.05);
+  --sg-tint: rgba(34, 197, 94, 0.14);                 /* fallback when color-mix is missing */
+  --sg-tint: color-mix(in srgb, var(--sg-green) 16%, transparent);
+}
+.ion-palette-dark {
+  --sg-shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────────────── */
+@keyframes sg-rise    { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes sg-fade    { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sg-val-in  { from { opacity: 0; transform: translateY(0.35em); } to { opacity: 1; transform: none; } }
+@keyframes sg-draw    { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes sg-flash-a { from { opacity: 0.10; } to { opacity: 0; } }
+@keyframes sg-flash-b { from { opacity: 0.10; } to { opacity: 0; } }
+@keyframes sg-pop     { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes sg-shake   { 0%, 100% { transform: none; } 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); }
+                        60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } }
+@keyframes sg-ring    { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45); } 100% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } }
+@keyframes sg-ping    { 0% { transform: scale(1); opacity: 0.6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes sg-shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+@keyframes sg-alert-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0), 0 4px 14px rgba(239, 68, 68, 0.25); }
+  50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18), 0 4px 14px rgba(239, 68, 68, 0.25); }
+}
+@keyframes sg-slide-in { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+
+/* ── Page entrance: the top-level blocks of each page rise in, one after another ──
+   Runs when a page is first shown and again when its tab is reopened (Ionic hides
+   inactive pages with display:none, which restarts CSS animations). Fill mode
+   "backwards" leaves no transform behind afterwards. */
+ion-content:not(.sg-no-enter) > :not([slot]) {
+  animation: sg-rise var(--sg-dur-3) var(--sg-ease) backwards;
+}
+ion-content:not(.sg-no-enter) > :not([slot]):nth-child(2) { animation-delay: 40ms; }
+ion-content:not(.sg-no-enter) > :not([slot]):nth-child(3) { animation-delay: 80ms; }
+ion-content:not(.sg-no-enter) > :not([slot]):nth-child(4) { animation-delay: 120ms; }
+ion-content:not(.sg-no-enter) > :not([slot]):nth-child(5) { animation-delay: 160ms; }
+ion-content:not(.sg-no-enter) > :not([slot]):nth-child(6) { animation-delay: 200ms; }
+ion-content:not(.sg-no-enter) > :not([slot]):nth-child(7) { animation-delay: 240ms; }
+ion-content:not(.sg-no-enter) > :not([slot]):nth-child(n+8) { animation-delay: 280ms; }
+
+/* ── Live values ─────────────────────────────────────────────────────────── */
+/* A new reading slides up into place; it never counts through values that were not read. */
+.sg-live-value { display: inline-block; }
+.sg-val-in { animation: sg-val-in var(--sg-dur-2) var(--sg-ease) backwards; }
+
+/* Tile flash on a new reading: an overlay in the tile's status colour (--sg-flash) fades out.
+   data-flash alternates a/b so each new reading restarts the animation. */
+[data-flash] { position: relative; }
+[data-flash]::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: var(--sg-flash, #22c55e); opacity: 0;
+}
+[data-flash="a"]::after { animation: sg-flash-a 700ms var(--sg-ease-std); }
+[data-flash="b"]::after { animation: sg-flash-b 700ms var(--sg-ease-std); }
+
+/* Status pills change colour smoothly (In range → Out of range). */
+.sg-pill { transition: background-color var(--sg-dur-2) var(--sg-ease-std), color var(--sg-dur-2) var(--sg-ease-std),
+                       border-color var(--sg-dur-2) var(--sg-ease-std); }
+
+/* Pulsing dot beside "Live". */
+.sg-live-dot { position: relative; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+               background: currentColor; margin-right: 4px; vertical-align: 1px; }
+.sg-live-dot.on::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: currentColor;
+                         animation: sg-ping 2s var(--sg-ease-std) infinite; }
+
+/* Sparklines and progress bars draw in. */
+.sg-spark-line { stroke-dasharray: 1; stroke-dashoffset: 0; animation: sg-draw 800ms var(--sg-ease) backwards 120ms; }
+.sg-spark-area { animation: sg-fade 600ms var(--sg-ease-std) backwards 400ms; }
+.sg-bar-fill   { transition: width 0.6s var(--sg-ease), background-color var(--sg-dur-2) var(--sg-ease-std); }
+
+/* ── Press feedback ──────────────────────────────────────────────────────── */
+.sg-snap-tile, .sg-metric-tile, .sg-kpi, .sg-kpi-trend, .sg-act-pill, .sg-select-card, .sg-filter-pill, .sg-pressable {
+  transition: transform var(--sg-dur-1) var(--sg-ease), border-color 0.15s, background-color 0.15s, color 0.15s, box-shadow 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sg-snap-tile:active, .sg-metric-tile:active, .sg-kpi:active, .sg-kpi-trend:active,
+.sg-select-card:active, .sg-pressable:active { transform: scale(0.97); }
+.sg-act-pill:active, .sg-filter-pill:active { transform: scale(0.94); }
+ion-button { transition: transform var(--sg-dur-1) var(--sg-ease); }
+ion-button.ion-activated { transform: scale(0.97); }
+
+/* ── Command feedback (useCommand) ───────────────────────────────────────── */
+.sg-sending { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: 12px;
+              color: var(--sg-muted); animation: sg-fade var(--sg-dur-2) var(--sg-ease-std); }
+.sg-sending ion-spinner { width: 18px; height: 18px; color: var(--sg-green); }
+.sg-cmd-ok { border-radius: 10px; animation: sg-ring 700ms var(--sg-ease-std); }
+.sg-cmd-no { animation: sg-shake 380ms var(--sg-ease-std); }
+.sg-cmd-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700;
+                padding: 3px 8px; border-radius: 999px; animation: sg-pop 320ms var(--sg-ease) backwards; }
+.sg-cmd-badge.ok   { color: #16a34a; background: rgba(34, 197, 94, 0.14); }
+.sg-cmd-badge.sim  { color: #b45309; background: rgba(245, 158, 11, 0.16); }
+.sg-cmd-badge.no   { color: #dc2626; background: rgba(239, 68, 68, 0.12); }
+.ion-palette-dark .sg-cmd-badge.ok  { color: #4ade80; }
+.ion-palette-dark .sg-cmd-badge.sim { color: #fbbf24; }
+.ion-palette-dark .sg-cmd-badge.no  { color: #f87171; }
+
+/* ── Alerts ──────────────────────────────────────────────────────────────── */
+ion-content:not(.sg-no-enter) > .sg-banner-solid-crit, .sg-banner-solid-crit { animation: sg-rise var(--sg-dur-3) var(--sg-ease) backwards, sg-alert-glow 2.4s var(--sg-ease-std) 400ms infinite; }
+/* Once every urgent alert has been seen (acknowledged), the banner stops pulsing. */
+ion-content:not(.sg-no-enter) > .sg-banner-solid-crit.sg-seen, .sg-banner-solid-crit.sg-seen { animation: sg-rise var(--sg-dur-3) var(--sg-ease) backwards; }
+.sg-alert-in { animation: sg-slide-in var(--sg-dur-3) var(--sg-ease) backwards; }
+.sg-pop { animation: sg-pop 360ms var(--sg-ease) backwards; }
+
+/* Kiosk: the severity tag of a critical or high alert pulses softly (opacity only, cheap on the Pi). */
+@keyframes sg-urgent { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.sg-urgent { animation: sg-urgent 1.8s var(--sg-ease-std) infinite; }
+
+/* History chart: the line wipes in from the left once per metric or range (LineChart's drawN);
+   the latest-value dot and label follow. */
+@keyframes sg-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.sg-chart-wipe { animation: sg-wipe 900ms var(--sg-ease) backwards; }
+.sg-chart-last { animation: sg-fade var(--sg-dur-2) var(--sg-ease-std) backwards 650ms; }
+
+/* ── Loading placeholders ────────────────────────────────────────────────── */
+.sg-skel {
+  display: block; border-radius: 6px;
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.16) 30%, rgba(148, 163, 184, 0.32) 50%, rgba(148, 163, 184, 0.16) 70%);
+  background-size: 300% 100%;
+  animation: sg-shimmer 1.4s linear infinite;
+}
+
+/* ── Finishing touches ───────────────────────────────────────────────────── */
+/* One button style: rounded, sentence case, no Material capitals. */
+ion-button { --border-radius: 10px; --box-shadow: none; text-transform: none; letter-spacing: 0; font-weight: 600; }
+ion-button[size="small"] { --border-radius: 8px; --padding-start: 14px; --padding-end: 14px; height: 32px; font-size: 13px; }
+ion-button[fill="outline"] { --border-width: 1px; }
+ion-button[fill="clear"] { --padding-start: 4px; --padding-end: 4px; }
+ion-segment-button { text-transform: none; letter-spacing: 0; }
+
+/* Cards lift slightly off the page in light mode. */
+.sg-card, .sg-snap-tile { box-shadow: var(--sg-shadow-1); }
+
+/* Bottom tabs: a soft pill grows behind the selected icon. */
+ion-tab-button ion-icon {
+  padding: 3px 16px; border-radius: 999px; box-sizing: content-box;
+  transition: background-color var(--sg-dur-2) var(--sg-ease-std), transform var(--sg-dur-2) var(--sg-ease);
+}
+ion-tab-button.tab-selected ion-icon { background: var(--sg-tint); transform: scale(1.04); }
+ion-tab-button ion-badge.sg-pop { animation: sg-pop 360ms var(--sg-ease) backwards; }
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+html.sg-reduce-motion *, html.sg-reduce-motion *::before, html.sg-reduce-motion *::after {
+  animation: none !important; transition: none !important;
+}

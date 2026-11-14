@@ -24,6 +24,8 @@ interface AppSettingsState {
   accent: Accent;
   fontSize: FontSize;
   density: Density;
+  /** Turns off the app's own animations (the OS reduce-motion setting does too). */
+  reduceMotion: boolean;
   units: Units;
   numFmt: NumFmt;
   timezone: Timezone;
@@ -49,6 +51,7 @@ interface AppSettingsApi extends AppSettingsState {
   setAccent: (v: Accent) => void;
   setFontSize: (v: FontSize) => void;
   setDensity: (v: Density) => void;
+  setReduceMotion: (v: boolean) => void;
   setUnits: (v: Units) => void;
   setNumFmt: (v: NumFmt) => void;
   setTimezone: (v: Timezone) => void;
@@ -77,6 +80,7 @@ const DEFAULTS: AppSettingsState = {
   accent: 'green',
   fontSize: 'medium',
   density: 'normal',
+  reduceMotion: false,
   units: 'metric',
   numFmt: '1,234.5',
   timezone: 'utc',
@@ -104,7 +108,7 @@ function loadInitial(): AppSettingsState {
 
 const Ctx = createContext<AppSettingsApi>({
   ...DEFAULTS,
-  setTheme: () => {}, setAccent: () => {}, setFontSize: () => {}, setDensity: () => {},
+  setTheme: () => {}, setAccent: () => {}, setFontSize: () => {}, setDensity: () => {}, setReduceMotion: () => {},
   setUnits: () => {}, setNumFmt: () => {}, setTimezone: () => {}, setDateFmt: () => {},
   setShowKpi: () => {}, setShowActions: () => {}, setShowEnergy: () => {}, setShowFertilizer: () => {},
   setPushNotif: () => {}, setEmailDigest: () => {}, setSmsAlerts: () => {}, setSeverity: () => {},
@@ -148,7 +152,8 @@ export const AppSettingsProvider: React.FC<{ children: ReactNode }> = ({ childre
 
     root.style.setProperty('--sg-font-scale', String(FONT_SCALE[state.fontSize]));
     root.style.setProperty('--sg-card-pad', DENSITY_PAD[state.density]);
-  }, [isDark, state.accent, state.fontSize, state.density]);
+    root.classList.toggle('sg-reduce-motion', state.reduceMotion);
+  }, [isDark, state.accent, state.fontSize, state.density, state.reduceMotion]);
 
   const formatTemp = (celsius: number, decimals = 1): { value: string; unit: string } => {
     if (state.units === 'imperial') {
@@ -163,6 +168,7 @@ export const AppSettingsProvider: React.FC<{ children: ReactNode }> = ({ childre
     setAccent:   (v) => setState(s => ({ ...s, accent: v })),
     setFontSize: (v) => setState(s => ({ ...s, fontSize: v })),
     setDensity:  (v) => setState(s => ({ ...s, density: v })),
+    setReduceMotion: (v) => setState(s => ({ ...s, reduceMotion: v })),
     setUnits:    (v) => setState(s => ({ ...s, units: v })),
     setNumFmt:   (v) => setState(s => ({ ...s, numFmt: v })),
     setTimezone: (v) => setState(s => ({ ...s, timezone: v })),

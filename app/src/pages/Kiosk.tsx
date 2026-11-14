@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { IonPage, IonContent, IonIcon } from '@ionic/react';
 import { useLocation } from 'react-router-dom';
-import { checkmarkCircle, wifiOutline, cloudDoneOutline, cloudOfflineOutline } from 'ionicons/icons';
+import { checkmarkCircle, leaf, wifiOutline, cloudDoneOutline, cloudOfflineOutline } from 'ionicons/icons';
 import { ApiClient, normaliseBase } from '../api/client';
 import type { AlertItem, MqttInfo, NetworkStatus } from '../contract/types';
 import { useConnection } from '../contexts/ConnectionContext';
@@ -20,6 +20,7 @@ import { METRIC_ICON, ACTUATOR_ICON, statusColor } from '../components/display';
 import { alertTitle, LOCK_SHORT, reasonText } from '../contract/codes';
 import { fmtTime, timeAgo, untilText } from '../components/format';
 import { scheduleLine } from '../providers/stageSchedule';
+import { FlashBox, LiveValue } from '../components/motion';
 import KioskNetwork from '../components/KioskNetwork';
 
 const TILES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'stock_weight'];
@@ -72,12 +73,13 @@ const DeviceTile: React.FC<{ id: string }> = ({ id }) => {
 const AlertRow: React.FC<{ a: AlertItem }> = ({ a }) => {
   const c = SEV_COLOR[a.severity] ?? '#94a3b8';
   return (
-    <div style={{ display: 'flex', gap: '0.8vw', alignItems: 'stretch', padding: '0.6vh 0', borderBottom: '1px solid var(--sg-border)', minWidth: 0 }}>
+    <div className="sg-alert-in" style={{ display: 'flex', gap: '0.8vw', alignItems: 'stretch', padding: '0.6vh 0', borderBottom: '1px solid var(--sg-border)', minWidth: 0 }}>
       <div style={{ width: 4, borderRadius: 2, background: c, flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="sg-row-between" style={{ gap: 8 }}>
           <span style={{ fontSize: fz(14), fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-            <span style={{ fontSize: fz(10), fontWeight: 800, color: c, border: `1px solid ${c}`, borderRadius: 4, padding: '0 5px', marginRight: 6, verticalAlign: 'middle' }}>
+            <span className={a.severity === 'critical' || a.severity === 'high' ? 'sg-urgent' : undefined}
+              style={{ display: 'inline-block', fontSize: fz(10), fontWeight: 800, color: c, border: `1px solid ${c}`, borderRadius: 4, padding: '0 5px', marginRight: 6, verticalAlign: 'middle' }}>
               {a.severity.toUpperCase()}
             </span>
             {alertTitle(a.code)}
@@ -143,7 +145,9 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
       cursor: cursor || panel ? 'default' : 'none' }}>
       <div className="sg-row-between">
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 'clamp(20px, 3vw, 44px)', fontWeight: 800 }}>🌿 {gh.meta.name}</div>
+          <div style={{ fontSize: 'clamp(20px, 3vw, 44px)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5vw' }}>
+            <IonIcon icon={leaf} style={{ color: 'var(--sg-green)', flexShrink: 0 }} />{gh.meta.name}
+          </div>
           <div style={{ fontSize: 'clamp(12px, 1.4vw, 22px)', color: 'var(--sg-muted)' }}>
             {gh.activePreset ? `${gh.activePreset.name} · ` : ''}<b style={{ color: 'var(--sg-text)' }}>{stage?.name} stage</b>
             {sched ? ` · ${scheduleLine(sched, id => gh.meta.stages.find(s => s.id === id)?.name ?? id)}` : ''} · {stage?.irrigation_mode} irrigation · updated {timeAgo(gh.lastUpdate)}
@@ -153,7 +157,7 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
           <div style={{ fontSize: 'clamp(24px, 4vw, 60px)', fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
             {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
-          <div style={{ fontSize: 'clamp(12px, 1.3vw, 20px)', fontWeight: 700, color: status.c }}>● {status.t}</div>
+          <div style={{ fontSize: 'clamp(12px, 1.3vw, 20px)', fontWeight: 700, color: status.c }}><span className={`sg-live-dot${status.t === 'LIVE' ? ' on' : ''}`} style={{ width: '0.5em', height: '0.5em' }} /> {status.t}</div>
           <div role="button" tabIndex={0} title="Network and cloud (press N)" data-testid="kiosk-net-chip" onClick={() => setPanel(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, padding: '2px 10px', borderRadius: 999, cursor: 'pointer',
               border: '1px solid var(--sg-border)', background: 'var(--sg-elevated)', fontSize: fz(12), color: 'var(--sg-muted)' }}>
@@ -168,19 +172,20 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
         {TILES.map(k => {
           const m = gh.metrics[k];
           const c = statusColor(m.status);
+          const shown = k === 'stock_weight' && m.value !== null ? (m.value / 1000).toFixed(2) : formatMetric(k, m.value);
           return (
-            <div key={k} className="sg-card" style={{ margin: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderTop: `4px solid ${c}`, opacity: m.installed ? 1 : 0.4 }}>
+            <FlashBox key={k} watch={shown} color={c} className="sg-card" style={{ margin: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderTop: `4px solid ${c}`, opacity: m.installed ? 1 : 0.4, transition: 'border-color 0.4s' }}>
               <div className="sg-row sg-gap-8" style={{ fontSize: 'clamp(12px, 1.4vw, 22px)', color: 'var(--sg-muted)' }}>
                 <IonIcon icon={METRIC_ICON[k]} style={{ color: c }} /> {METRIC_INFO[k].label}
               </div>
               <div style={{ fontSize: 'clamp(28px, 5vw, 84px)', fontWeight: 800, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
-                {k === 'stock_weight' && m.value !== null ? (m.value / 1000).toFixed(2) : formatMetric(k, m.value)}
+                <LiveValue value={shown} />
                 <span style={{ fontSize: '0.35em', fontWeight: 500, color: 'var(--sg-muted)', marginLeft: 6 }}>{m.value !== null ? (k === 'stock_weight' ? 'kg' : m.unit) : ''}</span>
               </div>
               <div style={{ fontSize: 'clamp(11px, 1.2vw, 18px)', color: m.note ? c : 'var(--sg-dim)' }}>
                 {m.note ?? (m.band ? `target ${m.band.min}–${m.band.max}` : '')}
               </div>
-            </div>
+            </FlashBox>
           );
         })}
       </div>
@@ -221,7 +226,7 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
           </div>
           {alerts.length === 0 ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1vw', minHeight: '9vh' }}>
-              <IonIcon icon={checkmarkCircle} style={{ color: '#22c55e', fontSize: fz(40) }} />
+              <IonIcon className="sg-pop" icon={checkmarkCircle} style={{ color: '#22c55e', fontSize: fz(40) }} />
               <div>
                 <div style={{ fontSize: fz(18), fontWeight: 800, color: '#22c55e' }}>All clear</div>
                 <div style={{ fontSize: fz(12), color: 'var(--sg-muted)' }}>No open alerts</div>

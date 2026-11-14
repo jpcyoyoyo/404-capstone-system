@@ -12,6 +12,7 @@ import type { MetricKey } from '../providers/types';
 import { METRIC_ICON, ACTUATOR_ICON, statusColor, statusWord, bandPosition } from '../components/display';
 import { fmtTime, untilText } from '../components/format';
 import { alertTitle } from '../contract/codes';
+import { FlashBox, LiveValue, Skeleton } from '../components/motion';
 
 const SNAPSHOT: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'ph', 'co2'];
 const SYSTEMS = ['irrigation', 'lights', 'doser', 'fan_exhaust'];
@@ -34,7 +35,7 @@ const Dashboard: React.FC = () => {
         <StatusBanner />
 
         {critical.length > 0 && (
-          <div className="sg-banner-solid-crit">
+          <div className={`sg-banner-solid-crit${critical.every(a => a.acknowledged_at) ? ' sg-seen' : ''}`}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700 }}>{critical.length === 1 ? alertTitle(critical[0].code).toUpperCase() : `${critical.length} URGENT ALERTS`}</div>
               <div style={{ fontSize: 11, opacity: 0.9 }}>{critical[0].message}</div>
@@ -87,7 +88,7 @@ const Dashboard: React.FC = () => {
             const unit = t ? t.unit : k === 'light' && m.value !== null && m.value >= 1000 ? 'lux' : k === 'ph' ? '' : m.unit;
             const c = statusColor(m.status);
             return (
-              <div key={k} className="sg-snap-tile" onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)} style={{ cursor: 'pointer' }}>
+              <FlashBox key={k} watch={value} color={c} className="sg-snap-tile" onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)} style={{ cursor: 'pointer' }}>
                 <div className="sg-row sg-gap-8" style={{ marginBottom: 6 }}>
                   <div className="sg-icon-chip" style={{ width: 28, height: 28, background: `${c}1f`, color: c }}>
                     <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 14 }} />
@@ -95,15 +96,15 @@ const Dashboard: React.FC = () => {
                   <span style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{m.label}</span>
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sg-text)', lineHeight: 1 }}>
-                  {value}<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 2, color: 'var(--sg-muted)' }}>{m.value !== null ? unit : ''}</span>
+                  {!gh.ready ? <Skeleton w={64} h={20} /> : <LiveValue value={value} />}<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 2, color: 'var(--sg-muted)' }}>{m.value !== null ? unit : ''}</span>
                 </div>
                 <div className="sg-bar-track" style={{ marginTop: 6 }}>
                   <div className="sg-bar-fill" style={{ width: `${bandPosition(m.value, m.band)}%`, background: c }} />
                 </div>
-                <div style={{ fontSize: 10, color: c, marginTop: 4, fontWeight: 600 }}>
-                  {m.note ?? statusWord(m.status)}{m.band ? <span style={{ color: 'var(--sg-dim)', fontWeight: 400 }}> · {m.band.min}–{m.band.max}</span> : null}
+                <div style={{ fontSize: 10, color: c, marginTop: 4, fontWeight: 600, transition: 'color var(--sg-dur-2)' }}>
+                  <LiveValue value={m.note ?? statusWord(m.status)} />{m.band ? <span style={{ color: 'var(--sg-dim)', fontWeight: 400 }}> · {m.band.min}–{m.band.max}</span> : null}
                 </div>
-              </div>
+              </FlashBox>
             );
           })}
         </div>
@@ -119,7 +120,7 @@ const Dashboard: React.FC = () => {
               return (
                 <div key={id} className="sg-act-pill" onClick={() => history.push('/tabs/controls')} style={{ opacity: def.installed ? 1 : 0.5 }}>
                   <IonIcon icon={ACTUATOR_ICON[id]} style={{ fontSize: 12 }} />
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? '#22c55e' : 'var(--sg-border)', flexShrink: 0 }} />
+                  <span className={`sg-live-dot${on ? ' on' : ''}`} style={{ color: on ? '#22c55e' : 'var(--sg-border)', marginRight: 0, flexShrink: 0 }} />
                   <span>{def.name}{!def.installed ? ' (not installed)' : st?.mode === 'MANUAL' ? ' · manual' : ''}</span>
                 </div>
               );
@@ -138,7 +139,7 @@ const Dashboard: React.FC = () => {
               <IonIcon icon={waterOutline} style={{ color: '#3b82f6' }} />
               <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Reservoir</span>
             </div>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>{formatMetric('water_level', level.value)}{level.value !== null ? '%' : ''}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}><LiveValue value={formatMetric('water_level', level.value)} />{level.value !== null ? '%' : ''}</span>
           </div>
           <div className="sg-bar-track">
             <div className="sg-bar-fill" style={{ width: `${level.value ?? 0}%`, background: statusColor(level.status) }} />
@@ -163,7 +164,7 @@ const Dashboard: React.FC = () => {
             { label: 'Records',  icon: analyticsOutline,     color: '#22c55e', path: '/tabs/records' },
             { label: 'Alerts',   icon: notificationsOutline, color: '#ef4444', path: '/tabs/alerts' },
           ].map(a => (
-            <div key={a.label} onClick={() => history.push(a.path)} style={{ textAlign: 'center', cursor: 'pointer' }}>
+            <div key={a.label} className="sg-pressable" onClick={() => history.push(a.path)} style={{ textAlign: 'center', cursor: 'pointer' }}>
               <div className="sg-icon-chip" style={{ margin: '0 auto 4px', background: `${a.color}1f`, color: a.color, width: 44, height: 44, borderRadius: 14 }}>
                 <IonIcon icon={a.icon} style={{ fontSize: 18 }} />
               </div>

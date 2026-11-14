@@ -1,5 +1,6 @@
 import React from 'react';
-import { IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton } from '@ionic/react';
+import { IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonIcon } from '@ionic/react';
+import { leaf } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,7 +13,7 @@ interface PersistentHeaderProps {
 }
 
 const LINK_LABEL: Record<Link, string> = {
-  local: '● Online', remote: '● Online (Remote)', demo: '● DEMO MODE', offline: '● Offline',
+  local: 'Online', remote: 'Remote', demo: 'Demo mode', offline: 'Offline',
 };
 const LINK_COLOR: Record<Link, string> = {
   local: '#22c55e', remote: '#3b82f6', demo: '#f59e0b', offline: '#ef4444',
@@ -41,8 +42,9 @@ const PersistentHeader: React.FC<PersistentHeaderProps> = ({
 
         <IonTitle>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.35 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--sg-text)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              🌿 {gh.meta.name}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 15, fontWeight: 700, color: 'var(--sg-text)', minWidth: 0, letterSpacing: -0.1 }}>
+              <IonIcon icon={leaf} style={{ color: 'var(--sg-green)', fontSize: 15, flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gh.meta.name}</span>
             </span>
             <span style={{ fontSize: 10, color: 'var(--sg-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {gh.activePreset ? gh.activePreset.name.replace(/\s*\(default\)$/, '') : 'Custom thresholds'} · {stageName} stage
@@ -52,15 +54,16 @@ const PersistentHeader: React.FC<PersistentHeaderProps> = ({
 
         <IonButtons slot="end">
           <div style={{ textAlign: 'right', lineHeight: 1.6, marginRight: 8 }}>
-            <div style={{ fontSize: 10, color: LINK_COLOR[link], fontWeight: 600 }}>
-              {gh.link === 'local' && !gh.controllerOnline ? '● Controller down' : LINK_LABEL[link]}
+            <div style={{ fontSize: 10, color: LINK_COLOR[link], fontWeight: 600, whiteSpace: 'nowrap' }}>
+              <span className={`sg-live-dot${gh.streaming && link !== 'offline' ? ' on' : ''}`} />
+              {gh.link === 'local' && !gh.controllerOnline ? 'Controller down' : LINK_LABEL[link]}
             </div>
             {e && gh.meta.capabilities.energy && (
               <div style={{ fontSize: 10, color: 'var(--sg-muted)' }}>
                 ☀ {e.solarW}W · <span style={{ color: batColor }}>🔋 {e.batteryPct.toFixed(0)}%</span>
               </div>
             )}
-            <div style={{ fontSize: 10, color: 'var(--sg-muted)' }}>
+            <div style={{ fontSize: 10, color: 'var(--sg-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
               {gh.streaming ? 'Live' : 'Sync'} {fmtTime(gh.lastUpdate, true)}
             </div>
           </div>

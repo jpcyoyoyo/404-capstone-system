@@ -13,6 +13,7 @@ import type { MetricKey } from '../providers/types';
 import type { Quality } from '../contract/types';
 import { METRIC_ICON, statusColor } from '../components/display';
 import { timeAgo } from '../components/format';
+import { FlashBox, LiveValue, Skeleton } from '../components/motion';
 
 const AIR: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light'];
 const RESERVOIR: MetricKey[] = ['co2', 'ph', 'ec', 'water_level', 'water_temperature', 'stock_weight', 'water_flow'];
@@ -35,8 +36,9 @@ const LiveMonitor: React.FC = () => {
         const c = statusColor(m.status);
         const t = k === 'temperature' && m.value !== null ? formatTemp(m.value) : null;
         const h = m.history;
+        const shown = t ? t.value : formatMetric(k, m.value);
         return (
-          <div key={k} className="sg-snap-tile" style={{ cursor: 'pointer' }} onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)}>
+          <FlashBox key={k} watch={shown} color={c} className="sg-snap-tile" style={{ cursor: 'pointer' }} onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)}>
             <div className="sg-row sg-gap-8" style={{ marginBottom: 8 }}>
               <div className="sg-icon-chip" style={{ width: 28, height: 28, background: `${c}1f`, color: c }}>
                 <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 14 }} />
@@ -44,7 +46,7 @@ const LiveMonitor: React.FC = () => {
               <span style={{ fontSize: 11, color: 'var(--sg-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{METRIC_INFO[k].short}</span>
             </div>
             <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--sg-text)', lineHeight: 1, marginBottom: 6 }}>
-              {t ? t.value : formatMetric(k, m.value)}
+              {!gh.ready ? <Skeleton w={70} h={24} /> : <LiveValue value={shown} />}
               <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--sg-muted)', marginLeft: 3 }}>{m.value !== null ? (t ? t.unit : m.unit) : ''}</span>
             </div>
             <Sparkline data={h} color={c} width={100} height={20} />
@@ -53,7 +55,7 @@ const LiveMonitor: React.FC = () => {
                 <span>↘ {formatMetric(k, Math.min(...h))}</span><span>↗ {formatMetric(k, Math.max(...h))}</span>
               </> : <span>{m.band ? `target ${m.band.min}–${m.band.max}` : ''}</span>}
             </div>
-          </div>
+          </FlashBox>
         );
       })}
     </div>
@@ -71,7 +73,8 @@ const LiveMonitor: React.FC = () => {
         <StatusBanner />
         <div className="sg-row-between" style={{ marginBottom: 12 }}>
           <div className="sg-row sg-gap-8">
-            <IonIcon icon={pulseOutline} style={{ color: gh.streaming ? '#ef4444' : 'var(--sg-muted)' }} />
+            {gh.streaming ? <span className="sg-live-dot on" style={{ color: '#ef4444', width: 8, height: 8, margin: '0 4px' }} />
+              : <IonIcon icon={pulseOutline} style={{ color: 'var(--sg-muted)' }} />}
             <span style={{ fontSize: 13, fontWeight: 700, color: gh.streaming ? '#ef4444' : 'var(--sg-muted)' }}>
               {gh.mode === 'demo' ? 'SIMULATED' : gh.streaming ? 'LIVE' : 'POLLING'}
             </span>
@@ -113,7 +116,7 @@ const LiveMonitor: React.FC = () => {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sg-text)' }}>
-                      {!s.installed ? '—' : s.type === 'float_switch' ? (r?.value === 1 ? 'Water OK' : r?.value === 0 ? 'LOW' : '—') : known ? formatMetric(k, r?.value) : (r?.value ?? '—')}
+                      <LiveValue value={String(!s.installed ? '—' : s.type === 'float_switch' ? (r?.value === 1 ? 'Water OK' : r?.value === 0 ? 'LOW' : '—') : known ? formatMetric(k, r?.value) : (r?.value ?? '—'))} />
                       <span style={{ fontSize: 10, color: 'var(--sg-muted)', marginLeft: 2 }}>{s.installed && s.type !== 'float_switch' && r?.value !== null && r ? s.unit : ''}</span>
                     </div>
                     <span className={`sg-pill ${s.installed ? (r ? Q_PILL[r.quality] : 'sg-pill-idle') : 'sg-pill-idle'}`} style={{ fontSize: 9 }}>

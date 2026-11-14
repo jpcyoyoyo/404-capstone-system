@@ -63,8 +63,11 @@ const Sparkline: React.FC<SparklineProps> = ({
           </linearGradient>
         </defs>
       )}
-      {area && <path d={areaPath} fill={`url(#${gradientId})`} stroke="none" />}
+      {area && <path className="sg-spark-area" d={areaPath} fill={`url(#${gradientId})`} stroke="none" />}
+      {/* pathLength=1 lets motion.css draw the line in from left to right when it first appears */}
       <path
+        className="sg-spark-line"
+        pathLength={1}
         d={linePath}
         fill="none"
         stroke={color}

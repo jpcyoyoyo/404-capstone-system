@@ -33,6 +33,7 @@ import '@ionic/react/css/display.css';
 import './theme/fonts.css';
 import './theme/variables.css';
 import './theme/global.css';
+import './theme/motion.css';
 
 setupIonicReact();
 

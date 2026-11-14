@@ -83,6 +83,18 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
   const fullSpan = full.t1 - full.t0;
   useEffect(() => { setLive(null); setFrozen(null); setCross(null); }, [resetKey, fullSpan]);
 
+  // Draw-in: the line wipes in from the left once per metric or range, when its data has loaded
+  // (updated.at goes from none to a time). The 30 s refreshes and zooming never replay it, and the
+  // old range's line is not animated while the new one loads (its load time is skipped).
+  const loadedAt = updated?.at ?? null;
+  const draw = useRef<{ key: string | undefined; armed: boolean; skip: number | null | undefined; n: number }>(
+    { key: resetKey, armed: true, skip: undefined, n: 0 });
+  if (draw.current.key !== resetKey) draw.current = { key: resetKey, armed: true, skip: loadedAt, n: draw.current.n };
+  if (draw.current.armed && loadedAt !== null && loadedAt !== draw.current.skip) {
+    draw.current = { ...draw.current, armed: false, n: draw.current.n + 1 };
+  }
+  const drawN = draw.current.n;
+
   const cur = live ?? view ?? full;
   const span = cur.t1 - cur.t0;
   const zoomed = !isFull(cur, full);
@@ -310,6 +322,7 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
           })}
 
           <g clipPath={`url(#${clip})`}>
+            <g key={drawN} className={drawN ? 'sg-chart-wipe' : undefined}>
             {visible.map(s => splitGaps(s.vis, gap).map((seg, i) => {
               const ranged = seg.filter(p => p.lo !== undefined && p.hi !== undefined);
               return (
@@ -323,14 +336,17 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
                 </g>
               );
             }))}
+            </g>
           </g>
 
+          <g key={`last-${drawN}`} className={drawN ? 'sg-chart-last' : undefined}>
           {latest.map(({ s, p, ly }) => (
             <g key={`last-${s.name}`}>
               <circle cx={x(p.t)} cy={y(p.v)} r={3.6} fill={s.color} stroke="var(--sg-card)" strokeWidth={1.5} />
               {labelLast && <text x={x(p.t) + 6} y={ly + 3.5} textAnchor="start" fontWeight={700} fill={s.color} stroke="var(--sg-card)" strokeWidth={3} paintOrder="stroke">{fmtV(p.v)}</text>}
             </g>
           ))}
+          </g>
 
           {bandOff && band && (
             <text x={L + plotW - 2} y={bandOff === 'below' ? T + plotH - 4 : T + 9} textAnchor="end" fill="#16a34a">

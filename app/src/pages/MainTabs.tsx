@@ -74,7 +74,7 @@ const MainTabs: React.FC = () => {
         <IonTabButton tab="more" href="/tabs/more">
           <IonIcon icon={ellipsisHorizontalOutline} />
           <IonLabel>More</IonLabel>
-          {unackedCount > 0 && <IonBadge color="danger">{unackedCount}</IonBadge>}
+          {unackedCount > 0 && <IonBadge key={unackedCount} className="sg-pop" color="danger">{unackedCount}</IonBadge>}
         </IonTabButton>
       </IonTabBar>
     </IonTabs>

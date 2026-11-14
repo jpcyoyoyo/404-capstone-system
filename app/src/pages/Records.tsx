@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { IonPage, IonContent, IonSegment, IonSegmentButton, IonLabel, IonButton, IonSpinner } from '@ionic/react';
+import { IonPage, IonContent, IonSegment, IonSegmentButton, IonLabel, IonButton } from '@ionic/react';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import LineChart, { ChartSeries } from '../components/LineChart';
@@ -11,6 +11,7 @@ import { METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
 import type { AuditEntry, EventEntry, FertilizerReport, WaterDay } from '../contract/types';
 import { downloadFile, fmtDateTime, toCsv } from '../components/format';
+import { Skeleton } from '../components/motion';
 import { commandRefusal, doseStop, eventAction, plainDetail } from '../contract/codes';
 
 type Tab = 'environment' | 'water' | 'fertilizer' | 'activity';
@@ -109,7 +110,7 @@ const Records: React.FC = () => {
           <IonSegmentButton value="fertilizer"><IonLabel>Fertilizer</IonLabel></IonSegmentButton>
           <IonSegmentButton value="activity"><IonLabel>Activity</IonLabel></IonSegmentButton>
         </IonSegment>
-        {(loading || (tab === 'environment' && hc.loading)) && <div style={{ textAlign: 'center' }}><IonSpinner name="dots" /></div>}
+        {(loading || (tab === 'environment' && hc.loading)) && <Skeleton h={4} r={2} style={{ marginBottom: 10 }} />}
         {(err || (tab === 'environment' && hc.err)) && <div className="sg-banner-offline" style={{ marginBottom: 12 }}>{tab === 'environment' ? hc.err : err}</div>}
 
         {tab === 'environment' && (

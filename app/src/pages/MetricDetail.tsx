@@ -15,6 +15,7 @@ import type { EventEntry } from '../contract/types';
 import { statusColor, statusWord } from '../components/display';
 import { fmtDateTime } from '../components/format';
 import { eventAction, plainDetail } from '../contract/codes';
+import { LiveValue } from '../components/motion';
 
 const CHOICES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'water_temperature', 'stock_weight'];
 const ZONE_COLORS: Record<string, string> = { '0': '#14b8a6', '1': '#22c55e', '2': '#3b82f6' };
@@ -85,11 +86,11 @@ const MetricDetail: React.FC = () => {
             <div>
               <div style={{ fontSize: 12, color: 'var(--sg-muted)' }}>{info.label} now</div>
               <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--sg-text)' }}>
-                {formatMetric(metric, m.value)}<span style={{ fontSize: 13, color: 'var(--sg-muted)', marginLeft: 4 }}>{m.value !== null ? m.unit : ''}</span>
+                <LiveValue value={formatMetric(metric, m.value)} /><span style={{ fontSize: 13, color: 'var(--sg-muted)', marginLeft: 4 }}>{m.value !== null ? m.unit : ''}</span>
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <span className="sg-pill" style={{ background: `${c}1f`, color: c, borderColor: `${c}55` }}>{m.note ?? statusWord(m.status)}</span>
+              <span className="sg-pill" style={{ background: `${c}1f`, color: c, borderColor: `${c}55` }}><LiveValue value={m.note ?? statusWord(m.status)} /></span>
               {m.band && <div style={{ fontSize: 11, color: 'var(--sg-dim)', marginTop: 6 }}>Target {m.band.min}–{m.band.max} {m.unit}</div>}
             </div>
           </div>

@@ -7,8 +7,9 @@ const StatusBanner: React.FC = () => {
   const gh = useGreenhouse();
   if (gh.mode === 'demo') {
     return (
-      <div className="sg-banner-warn" style={{ marginBottom: 12 }}>
-        <span style={{ fontWeight: 700 }}>DEMO MODE</span> · simulated data — commands never reach the greenhouse.
+      <div className="sg-banner-warn" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px' }}>
+        <span className="sg-pill sg-pill-warn" style={{ fontSize: 10 }}>DEMO</span>
+        <span style={{ lineHeight: 1.35 }}>Simulated · nothing reaches the greenhouse</span>
       </div>
     );
   }

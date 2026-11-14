@@ -5,6 +5,8 @@ import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { useCommand } from '../components/useCommand';
+import { CommandBadge, Sending } from '../components/CommandStatus';
+import { LiveValue, SkeletonRows } from '../components/motion';
 import { formatMetric } from '../providers/metrics';
 import { statusColor } from '../components/display';
 import { fmtDateTime } from '../components/format';
@@ -17,7 +19,7 @@ const FERT_DEFAULTS = { stock_g_per_kg: 100, stock_reserve_g: 100, dose_g: 20, t
 
 const Fertigation: React.FC = () => {
   const gh = useGreenhouse();
-  const { send, busy, blocked } = useCommand();
+  const { send, busy, blocked, result, feedback } = useCommand();
   const [alert] = useIonAlert();
   const [target, setTarget] = useState('20');
   const [report, setReport] = useState<FertilizerReport | null>(null);
@@ -84,7 +86,7 @@ const Fertigation: React.FC = () => {
             <span className={`sg-pill ${dosing ? 'sg-pill-info' : 'sg-pill-idle'}`}>{dosing ? 'DOSING' : 'IDLE'}</span>
           </div>
           <div style={{ fontSize: 34, fontWeight: 800, color: 'var(--sg-text)' }}>
-            {formatMetric('stock_weight', stock.value)}<span style={{ fontSize: 16, fontWeight: 400, color: 'var(--sg-muted)' }}> g</span>
+            <LiveValue value={formatMetric('stock_weight', stock.value)} /><span style={{ fontSize: 16, fontWeight: 400, color: 'var(--sg-muted)' }}> g</span>
             {available !== null && (
               <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--sg-muted)', marginLeft: 8 }}>≈ {available.toFixed(0)} g fertilizer usable</span>
             )}
@@ -100,11 +102,11 @@ const Fertigation: React.FC = () => {
         <div className="sg-row sg-gap-8" style={{ marginBottom: 12 }}>
           <div className="sg-kpi" style={{ flex: 1 }}>
             <div className="sg-row sg-gap-4" style={{ fontSize: 10, color: 'var(--sg-muted)' }}><IonIcon icon={waterOutline} /> Reservoir</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: statusColor(level.status) }}>{formatMetric('water_level', level.value)}{level.value !== null ? '%' : ''}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: statusColor(level.status) }}><LiveValue value={formatMetric('water_level', level.value)} />{level.value !== null ? '%' : ''}</div>
           </div>
           <div className="sg-kpi" style={{ flex: 1 }}>
             <div className="sg-row sg-gap-4" style={{ fontSize: 10, color: 'var(--sg-muted)' }}><IonIcon icon={flaskOutline} /> Nutrient pH</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: statusColor(ph.status) }}>{formatMetric('ph', ph.value)}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: statusColor(ph.status) }}><LiveValue value={formatMetric('ph', ph.value)} /></div>
           </div>
           <div className="sg-kpi" style={{ flex: 1 }}>
             <div style={{ fontSize: 10, color: 'var(--sg-muted)' }}>EC</div>
@@ -122,11 +124,12 @@ const Fertigation: React.FC = () => {
               <span key={p} className={`sg-filter-pill ${Number(target) === p ? 'active' : ''}`} onClick={() => setTarget(String(p))}>{p} g</span>
             ))}
           </div>
-          <div className="sg-row sg-gap-8">
+          <div className={`sg-row sg-gap-8 ${feedback('doser')}`}>
             <input type="number" inputMode="decimal" min={1} max={200} value={target} onChange={e => setTarget(e.target.value)} style={input} />
             <span style={{ color: 'var(--sg-muted)' }}>g → {solution} g solution</span>
             <div style={{ flex: 1 }} />
-            {busy === 'doser' ? <IonSpinner name="dots" /> : (
+            <CommandBadge id="doser" result={result} />
+            {busy === 'doser' ? <Sending /> : (
               <IonButton disabled={!valid || dosing || !!blocked || !doserDef?.installed || busy !== null} onClick={dose}>
                 {dosing ? 'Dosing…' : 'Dose'}
               </IonButton>
@@ -150,8 +153,9 @@ const Fertigation: React.FC = () => {
         <div className="sg-card">
           <div className="sg-row-between" style={{ marginBottom: 8 }}>
             <div className="sg-section-title" style={{ marginBottom: 0 }}>Doses · last 30 days</div>
-            {loading && <IonSpinner name="dots" />}
+            {loading && report && <IonSpinner name="dots" />}
           </div>
+          {loading && !report && <SkeletonRows rows={3} />}
           {report && (
             <div className="sg-row sg-gap-8" style={{ marginBottom: 10 }}>
               {[
@@ -171,7 +175,7 @@ const Fertigation: React.FC = () => {
             const stop = ok ? null : doseStop(d.reason);
             const got = d.delivered_g ?? 0;
             return (
-              <div key={d.id} className="sg-row-between" style={{ padding: '8px 0', borderTop: '1px solid var(--sg-border)', alignItems: 'flex-start', gap: 8 }}>
+              <div key={d.id} className="sg-row-between sg-alert-in" style={{ padding: '8px 0', borderTop: '1px solid var(--sg-border)', alignItems: 'flex-start', gap: 8 }}>
                 <div className="sg-row sg-gap-8" style={{ alignItems: 'flex-start', minWidth: 0 }}>
                   <IonIcon icon={ok ? checkmarkCircle : closeCircle} style={{ color: ok ? '#22c55e' : '#ef4444', flexShrink: 0, marginTop: 2 }} />
                   <div style={{ minWidth: 0 }}>
