@@ -123,6 +123,10 @@ ion-content:not(.sg-no-enter) > .sg-banner-solid-crit.sg-seen, .sg-banner-solid-
 @keyframes sg-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 .sg-chart-wipe { animation: sg-wipe 900ms var(--sg-ease) backwards; }
 .sg-chart-last { animation: sg-fade var(--sg-dur-2) var(--sg-ease-std) backwards 650ms; }
+/* Zooming: the window and the value scale glide in code (components/useGlide.ts); grid lines and
+   time labels that come into view fade in, and the zoom bar fades in when the chart is zoomed. */
+.sg-tick-in { animation: sg-fade var(--sg-dur-2) var(--sg-ease-std) backwards; }
+.sg-fade-in { animation: sg-fade var(--sg-dur-2) var(--sg-ease-std) backwards; }
 
 /* ── Loading placeholders ────────────────────────────────────────────────── */
 .sg-skel {

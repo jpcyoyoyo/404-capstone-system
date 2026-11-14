@@ -59,7 +59,10 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
   `<Skeleton>` / `<SkeletonRows>` from `components/motion.tsx`. Command buttons show `<Sending />` and
   `<CommandBadge>` (`components/CommandStatus.tsx`) with `useCommand().feedback(id)` on the row; the
   Android app vibrates through `components/haptics.ts` (native only). The history chart wipes in once
-  per metric or range (`drawN` in `LineChart.tsx`), never on a refresh or zoom. Don't declare a
+  per metric or range (`drawN` in `LineChart.tsx`), never on a refresh or zoom. Zooming glides
+  (`components/useGlide.ts`): a double-tap, Reset zoom or wheel step eases to the new window, pinch and
+  drag follow the fingers with no lag, a new metric, range or refresh jumps, and the value axis eases to
+  each new scale (it is fitted to where the chart is going, not to the frame on screen). Don't declare a
   component inside another component's body: it remounts on every render and replays its animations.
 - Don't render `false`/`null` directly inside `IonRouterOutlet` (it crashes the outlet); route
   always, gate inside the page.

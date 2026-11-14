@@ -3,6 +3,7 @@ import {
   Pt, ValueAxis, View, bandPath, clampView, fmtStamp, gapFor, isFull, monotonePath, niceAxis, panBy,
   pickLabels, splitGaps, timeTicks, zoomAt,
 } from './chartScale';
+import { useGlide } from './useGlide';
 
 export interface ChartSeries { name: string; color: string; points: Pt[] }
 /** One set of lines: the whole range, or finer data for a zoomed window. */
@@ -33,6 +34,16 @@ const FONT = 10;
 const textW = (s: string) => s.length * 5.8 + 2;
 const T = 10; const B = 22;
 const coarse = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+
+/** How long a double-tap, Reset zoom or wheel step takes to glide to its new window, and the value axis to its new scale. */
+const ZOOM_MS = 280; const WHEEL_MS = 160; const AXIS_MS = 300;
+
+/** The finest layer that covers window v. */
+function pickLayer(layers: ChartLayer[], v: View): ChartLayer | null {
+  let pick: ChartLayer | null = layers[0] ?? null;
+  for (const l of layers.slice(1)) if (l.window.t0 <= v.t0 + 1000 && l.window.t1 >= v.t1 - 1000) pick = l;
+  return pick;
+}
 
 const fmtEvery = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`);
 
@@ -95,31 +106,45 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
   }
   const drawN = draw.current.n;
 
-  const cur = live ?? view ?? full;
+  // Where the chart is going (tgt) and what is on screen this frame (cur). A double-tap, Reset zoom
+  // or wheel step glides from one to the other; pinch and drag follow the fingers with no lag, and
+  // a new metric or range, or an auto-refresh, jumps. The value axis glides to each new scale.
+  const tgt = live ?? view ?? full;
+  const glideMs = useRef(0);
+  const glide = (ms: number) => { glideMs.current = ms; };
+  const [c0, c1] = useGlide([tgt.t0, tgt.t1], () => { const ms = glideMs.current; glideMs.current = 0; return ms; });
+  const cur: View = { t0: c0, t1: c1 };
   const span = cur.t1 - cur.t0;
-  const zoomed = !isFull(cur, full);
+  const zoomed = !isFull(tgt, full);      // where the chart is going: gestures, hints
+  const shownZoomed = !isFull(cur, full); // what is on screen: the position bar
 
   // The finest layer that covers the window on screen.
-  const layer = useMemo(() => {
-    let pick: ChartLayer | null = layers[0] ?? null;
-    for (const l of layers.slice(1)) if (l.window.t0 <= cur.t0 + 1000 && l.window.t1 >= cur.t1 - 1000) pick = l;
-    return pick;
-  }, [layers, cur.t0, cur.t1]);
+  const layer = useMemo(() => pickLayer(layers, cur), [layers, cur.t0, cur.t1]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const visible = useMemo(() => (layer?.series ?? []).map(s => ({ ...s, vis: windowed(s.points, cur.t0, cur.t1) })), [layer, cur.t0, cur.t1]);
 
+  // The value axis is fitted to where the chart is going, so it is settled when the glide ends.
   const axis = useMemo(() => {
     let lo = Infinity; let hi = -Infinity;
-    for (const s of visible) for (const p of s.vis) {
-      if (p.t < cur.t0 || p.t > cur.t1) continue;
+    for (const s of pickLayer(layers, tgt)?.series ?? []) for (const p of windowed(s.points, tgt.t0, tgt.t1)) {
+      if (p.t < tgt.t0 || p.t > tgt.t1) continue;
       lo = Math.min(lo, p.lo ?? p.v, p.v); hi = Math.max(hi, p.hi ?? p.v, p.v);
     }
     if (!Number.isFinite(lo)) { lo = band?.min ?? 0; hi = band?.max ?? 1; }
     return niceAxis(lo, hi, H < 170 ? 4 : 5);
-  }, [visible, cur.t0, cur.t1, band, H]);
-  const ax = frozen ?? axis;
+  }, [layers, tgt, band, H]);
+  const axTarget = frozen ?? axis;
+  // A new metric or range (or its first data) jumps to its scale; the line wipes in instead.
+  const axisKey = useRef(`${resetKey}#${drawN}`);
+  const [alo, ahi] = useGlide([axTarget.lo, axTarget.hi], () => {
+    const k = `${resetKey}#${drawN}`;
+    if (axisKey.current !== k) { axisKey.current = k; return 0; }
+    return AXIS_MS;
+  });
+  const eps = (ahi - alo) * 1e-3;
+  const ax: ValueAxis = { ...axTarget, lo: alo, hi: ahi, ticks: axTarget.ticks.filter(v => v >= alo - eps && v <= ahi + eps) };
 
-  const L = Math.max(...ax.ticks.map(v => textW(v.toFixed(ax.decimals)))) + 8;
+  const L = Math.max(...axTarget.ticks.map(v => textW(v.toFixed(ax.decimals)))) + 8;
   // Room on the right for the latest values when the lines reach "now".
   const fmtV = (v: number) => v.toFixed(digits);
   // With more than 3 lines the labels would crowd: dots only (the crosshair gives the values).
@@ -132,19 +157,23 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
   const y = (v: number) => T + (1 - (v - ax.lo) / (ax.hi - ax.lo)) * plotH;
 
   // Everything the pointer handlers need, always current.
-  const st = useRef({ cur, full, minSpan, L, plotW, zoomed, axis: ax, onViewChange });
-  st.current = { cur, full, minSpan, L, plotW, zoomed, axis: ax, onViewChange };
+  const st = useRef({ cur, tgt, full, minSpan, L, plotW, zoomed, axis: axTarget, onViewChange });
+  st.current = { cur, tgt, full, minSpan, L, plotW, zoomed, axis: axTarget, onViewChange };
 
   const commit = () => {
     const v = liveRef.current; if (!v) return;
     setLive(null); setFrozen(null);
     st.current.onViewChange(isFull(v, st.current.full) ? null : v);
   };
-  const tAt = (clientX: number) => {
+  /** How far across the plot the pointer is (0 = left edge, 1 = right edge). */
+  const fracAt = (clientX: number) => {
     const r = box.current!.getBoundingClientRect(); const s = st.current;
-    const f = Math.min(1, Math.max(0, (clientX - r.left - s.L) / s.plotW));
-    return s.cur.t0 + f * (s.cur.t1 - s.cur.t0);
+    return Math.min(1, Math.max(0, (clientX - r.left - s.L) / s.plotW));
   };
+  /** The time under the pointer on screen. */
+  const tAt = (clientX: number) => { const s = st.current; return s.cur.t0 + fracAt(clientX) * (s.cur.t1 - s.cur.t0); };
+  /** The same place across the plot, in window v (a zoom that starts mid-glide anchors where it ends up). */
+  const tIn = (v: View, clientX: number) => v.t0 + fracAt(clientX) * (v.t1 - v.t0);
 
   // ── touch and mouse ───────────────────────────────────────────────────
   const g = useRef({
@@ -161,7 +190,7 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
       clearTimeout(G.timer);
       const [a, b] = [...G.pts.values()];
       G.mode = 'pinch'; G.dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      G.sv = liveRef.current ?? st.current.cur; G.anchor = tAt((a.x + b.x) / 2);
+      G.sv = st.current.cur; G.anchor = tAt((a.x + b.x) / 2);   // from what is on screen, even mid-glide
       setFrozen(st.current.axis); setCross(null);
       for (const id of G.pts.keys()) { try { box.current?.setPointerCapture(id); } catch { /* gone */ } }
     } else if (G.pts.size === 1) {
@@ -222,8 +251,9 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
       if (dbl) {
         G.lastTap = { t: 0, x: 0 }; setCross(null);
         const s = st.current;
+        glide(ZOOM_MS);
         if (s.zoomed) { setLive(null); setFrozen(null); s.onViewChange(null); }
-        else { const v = zoomAt(s.cur, 2, tAt(e.clientX), s.full, s.minSpan); s.onViewChange(isFull(v, s.full) ? null : v); }
+        else { const v = zoomAt(s.tgt, 2, tIn(s.tgt, e.clientX), s.full, s.minSpan); s.onViewChange(isFull(v, s.full) ? null : v); }
       } else {
         G.lastTap = { t: now, x: e.clientX };
         if (!G.mouse) { const t = tAt(e.clientX); setCross(c => (c === null ? t : null)); }
@@ -240,19 +270,19 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
     const el = box.current; if (!el) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onWheel = (e: WheelEvent) => {
-      const s = st.current; const base = liveRef.current ?? s.cur;
+      const s = st.current; const base = liveRef.current ?? s.tgt;
       const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey;
       let next: View;
       if (sideways) {
         const d = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
         next = panBy(base, (d / s.plotW) * (base.t1 - base.t0), s.full, s.minSpan);
       } else {
-        next = zoomAt(base, Math.exp(-e.deltaY * 0.002), tAt(e.clientX), s.full, s.minSpan);
+        next = zoomAt(base, Math.exp(-e.deltaY * 0.002), tIn(base, e.clientX), s.full, s.minSpan);
       }
       if (Math.abs(next.t0 - base.t0) < 1 && Math.abs(next.t1 - base.t1) < 1) return;
       e.preventDefault();
       if (!liveRef.current) setFrozen(s.axis);
-      setLive(next); setCross(null);
+      glide(WHEEL_MS); setLive(next); setCross(null);
       clearTimeout(timer); timer = setTimeout(commit, 300);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -302,7 +332,7 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
           )}
 
           {ax.ticks.map(v => (
-            <g key={v}>
+            <g key={v} className="sg-tick-in">
               <line x1={L} x2={L + plotW} y1={y(v)} y2={y(v)} stroke="var(--sg-border)" strokeWidth={1} />
               <text x={L - 6} y={y(v) + 3.5} textAnchor="end" fill="var(--sg-dim)">{v.toFixed(ax.decimals)}</text>
             </g>
@@ -312,7 +342,7 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
             const tx = x(tk.t); const lw = textW(tk.label);
             const anchor = tx - lw / 2 < 0 ? 'start' : tx + lw / 2 > width ? 'end' : 'middle';
             return (
-              <g key={tk.t}>
+              <g key={tk.t} className="sg-tick-in">
                 <line x1={tx} x2={tx} y1={T} y2={T + plotH} stroke={tk.major ? 'var(--sg-dim)' : 'var(--sg-border)'} strokeWidth={1} strokeOpacity={tk.major ? 0.7 : 0.6} strokeDasharray={tk.major ? '3 3' : undefined} />
                 {shown.has(tk.t) && (
                   <text x={tx} y={H - 6} textAnchor={anchor} fill={tk.major ? 'var(--sg-text)' : 'var(--sg-dim)'} fontWeight={tk.major ? 700 : 400}>{tk.label}</text>
@@ -386,8 +416,8 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
         </>)}
       </div>
 
-      {zoomed && !empty && (
-        <div style={{ marginTop: 6 }}>
+      {shownZoomed && !empty && (
+        <div className="sg-fade-in" style={{ marginTop: 6 }}>
           <div style={{ marginLeft: L, width: plotW, height: 4, borderRadius: 2, background: 'var(--sg-elevated)', position: 'relative' }}>
             <div style={{
               position: 'absolute', top: 0, bottom: 0, borderRadius: 2, background: 'var(--sg-green)',
@@ -397,7 +427,7 @@ const LineChart: React.FC<Props> = ({ layers, full, view, onViewChange, minSpan,
           <div className="sg-row-between" style={{ marginTop: 6 }}>
             <span style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{fmtStamp(cur.t0, span)} – {fmtStamp(cur.t1, span)} of {rangeLabel}</span>
             <span className="sg-filter-pill" role="button" style={{ padding: '3px 10px', fontSize: 11 }}
-              onClick={() => { setLive(null); setFrozen(null); onViewChange(null); }}>Reset zoom</span>
+              onClick={() => { glide(ZOOM_MS); setLive(null); setFrozen(null); onViewChange(null); }}>Reset zoom</span>
           </div>
         </div>
       )}
