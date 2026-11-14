@@ -1,0 +1,35 @@
+# Keeps the cloud image small and free of secrets (controller/Dockerfile, built from the root).
+# The image only needs app/ (source), contract/ and controller/.
+
+# Not needed in the image
+.git
+.github
+firmware
+deploy
+
+# Build output and dependencies (the image builds its own, for Linux)
+**/node_modules
+app/dist
+app/android
+app/cypress
+**/__pycache__
+**/*.egg-info
+**/.pytest_cache
+.venv
+venv
+coverage
+
+# Secrets and machine-specific files: never in an image
+.env
+**/*.env
+**/config.h
+**/config_*.h
+*.jks
+*.keystore
+keystore.properties
+**/*.db
+**/*.db-wal
+**/*.db-shm
+commit_*.txt
+*.tgz
+*.zip

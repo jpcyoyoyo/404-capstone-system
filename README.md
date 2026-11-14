@@ -127,7 +127,15 @@ NetworkManager keyfiles (0600) and never logged.
 
 ## Cloud server (required)
 
-`deploy/cloud/`: MySQL, the API with `GH_ROLE=cloud`, and Caddy for HTTPS. Set the same
+`deploy/cloud/`: MySQL, the API with `GH_ROLE=cloud`, and Caddy for HTTPS. Two ways to host it:
+
+* **Railway** (hosted, no server to manage): follow `deploy/cloud/RAILWAY.md`. `railway.json` at
+  the root builds `controller/Dockerfile`; Railway's MySQL service and HTTPS address replace the
+  MySQL container and Caddy. Variables: `deploy/cloud/railway.env.example`.
+* **A VPS with Docker:** `cd deploy/cloud`, copy `cloud.env.example` to `cloud.env`, fill it in,
+  then `docker compose up -d --build`.
+
+The image builds the web app itself, so `app/dist` does not have to exist first. Set the same
 `GH_JWT_SECRET` as the Pi and a long random `GH_SYNC_TOKEN`, then connect the Pi in any of three ways:
 
 * `sudo ghctl cloud setup https://<server>` (asks for the token, tests, then saves);

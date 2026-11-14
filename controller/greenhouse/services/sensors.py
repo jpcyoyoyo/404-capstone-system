@@ -2,18 +2,26 @@
 
 Integration Plan §3.1: "Polls local sensors, subscribes to node publications, applies
 quality flags, writes to the database and publishes to the broker."
+
+Clock (9 Nov 2026): while the system clock is not yet trusted (see greenhouse.clock) readings are
+still flagged and published live, but held in memory with a monotonic timestamp instead of being
+stored. When the clock is trusted they are stored with recorded_at worked back from the trusted
+clock, so a reboot without internet no longer leaves readings at wrong times in the database.
+Retention does not run while the clock is untrusted.
 """
 from __future__ import annotations
 
 import logging
 import threading
 import time
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
 
 from .. import quality
+from ..clock import AlwaysTrusted
 from ..bus import Bus, Topics
 from ..db import Database
 from ..hal import Hal, RawSample
@@ -26,14 +34,23 @@ log = logging.getLogger(__name__)
 
 RAW_RETENTION_DAYS = {"ph": 30, "ec": 30}
 DEFAULT_RAW_RETENTION_DAYS = 7
+MAX_HELD_READINGS = 50_000   # about a day of every installed sensor; the oldest go first beyond this
 
 
 class SensorService:
-    def __init__(self, reg: Registry, db: Database, bus: Bus, hal: Hal):
+    def __init__(self, reg: Registry, db: Database, bus: Bus, hal: Hal, clock=None,
+                 mono=time.monotonic, max_held: int = MAX_HELD_READINGS):
         self.reg, self.db, self.bus, self.hal = reg, db, bus, hal
         self.topics = Topics(reg.greenhouse_id)
         self.cal = CalibrationStore(db)
+        self.clock = clock or AlwaysTrusted()
+        self._mono = mono
+        self._started_mono = mono()
         self.started_at = utcnow()
+        # (monotonic time, row) for readings taken before the clock was trusted
+        self._held: deque[tuple[float, SensorReading]] = deque(maxlen=max_held)
+        self._dropped = 0
+        self._last_hold_log = -1e9
         self.warmup_s = float(reg.control.get("co2_warmup_s", 180))
         self._last_poll: dict[str, float] = {}
         self._latest: dict[str, dict[str, Any]] = {}
@@ -69,7 +86,8 @@ class SensorService:
         node = Topics.segment(topic, 3)
         ts = parse_iso(payload.get("ts")) or utcnow()
         # Nodes without a synced clock send ts=null; a clock more than 5 min off is not trusted either.
-        if abs((utcnow() - ts).total_seconds()) > 300:
+        # While the Pi's own clock is untrusted, arrival time is used (ingest holds the readings).
+        if abs((utcnow() - ts).total_seconds()) > 300 or not self.clock.trusted():
             ts = utcnow()
         samples = []
         for r in payload.get("readings", []):
@@ -81,14 +99,19 @@ class SensorService:
         self.ingest(samples, ts)
 
     def ingest(self, samples: list[RawSample], ts: datetime | None = None) -> list[dict[str, Any]]:
+        trusted = self.clock.trusted()
+        if trusted and self._held:
+            self.flush_held()
         ts = ts or utcnow()
         wtemp = self._water_temp()
+        # Warm-up is measured on the monotonic clock, so a clock correction cannot end it early.
+        started = ts - timedelta(seconds=self._mono() - self._started_mono)
         out, rows = [], []
         for smp in samples:
             sd = self.reg.sensor(smp.sensor_id)
             if not sd.installed:
                 continue
-            value, q = quality.evaluate(sd, smp.raw, smp.ok, self.cal.get(sd.id), ts, self.started_at,
+            value, q = quality.evaluate(sd, smp.raw, smp.ok, self.cal.get(sd.id), ts, started,
                                         warmup_s=self.warmup_s,
                                         water_temp_c=wtemp if sd.type in ("ph", "ec") else None)
             payload = {"sensor_id": sd.id, "zone_id": sd.zone, "type": sd.type, "value": value,
@@ -96,7 +119,9 @@ class SensorService:
             rows.append(SensorReading(sensor_id=sd.id, value=value, raw=smp.raw, unit=sd.unit, quality=q, recorded_at=ts))
             self._latest[sd.id] = payload
             out.append(payload)
-        if rows:
+        if rows and not trusted:
+            self._hold(rows)
+        elif rows:
             with self.db.session() as s:
                 s.add_all(rows)
                 for p in out:
@@ -106,6 +131,45 @@ class SensorService:
         for p in out:
             self.bus.publish(self.topics.reading(p["zone_id"], p["sensor_id"]), p, retain=True)
         return out
+
+    # ── readings taken before the clock was trusted ──────────────────────
+    def _hold(self, rows: list[SensorReading]) -> None:
+        m = self._mono()
+        for r in rows:
+            if len(self._held) == self._held.maxlen:
+                self._dropped += 1
+            self._held.append((m, r))
+        if m - self._last_hold_log >= 300:
+            self._last_hold_log = m
+            log.warning("system clock not trusted yet (%s): holding %d readings, not stored%s",
+                        getattr(self.clock, "reason", "?"), len(self._held),
+                        f"; {self._dropped} oldest dropped" if self._dropped else "")
+
+    def held_count(self) -> int:
+        return len(self._held)
+
+    def flush_held(self) -> int:
+        """Store held readings with recorded_at = trusted now minus their age on the monotonic clock."""
+        if not self._held:
+            return 0
+        now, m = utcnow(), self._mono()
+        held = list(self._held)
+        self._held.clear()
+        last_q: dict[str, str] = {}
+        with self.db.session() as s:
+            for when, row in held:
+                row.recorded_at = now - timedelta(seconds=m - when)
+                s.add(row)
+                last_q[row.sensor_id] = row.quality
+            for sid, q in last_q.items():
+                sensor = s.get(Sensor, sid)
+                if sensor is not None:
+                    sensor.status = q.lower()
+        log.info("system clock trusted (%s): stored %d held readings with corrected times%s",
+                 getattr(self.clock, "reason", "?"), len(held),
+                 f" ({self._dropped} oldest had been dropped)" if self._dropped else "")
+        self._dropped = 0
+        return len(held)
 
     def _water_temp(self) -> float | None:
         for sd in self.reg.sensors_of("water_temperature"):
@@ -133,6 +197,8 @@ class SensorService:
     def _poll_loop(self) -> None:
         while not self._stop.is_set():
             try:
+                if self._held and self.clock.trusted():
+                    self.flush_held()
                 self.poll_once()
             except Exception:
                 log.exception("local sensor poll failed")
@@ -140,6 +206,8 @@ class SensorService:
 
     # ── retention (§8.1): raw 7 days (pH/EC 30), then 15-minute aggregates ─
     def run_retention(self, now: datetime | None = None) -> int:
+        if now is None and not self.clock.trusted():
+            return 0   # a wrong clock could delete or roll up the wrong rows
         now = now or utcnow()
         removed = 0
         with self.db.session() as s:
