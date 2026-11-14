@@ -101,6 +101,8 @@ control:
 # One entry per measured quantity. A DHT22 therefore has two entries
 # (temperature + humidity) that share a `device`.
 # host: node_a | node_b | pi.   calibration: none | two_point | dry_wet | scale
+# full_scale (optional, per sensor): the sensor's top reading in raw units. A reading at or above it
+# means the sensor is pinned (e.g. MH-Z19B 0-5000 ppm returning 5000) and is stored INVALID (9 Nov 2026).
 sensor_defaults:
   plausible:
     temperature:       [0, 55]
@@ -153,7 +155,7 @@ sensors:
   - { id: soil_z2_03, type: soil_moisture, zone: 2, host: node_b, device: ads1115@0x48, channel: A2, calibration: dry_wet }
   - { id: light_z2_01, type: light,        zone: 2, host: node_b, device: bh1750@0x5C }
   # Zone 0 — controller and reservoir
-  - { id: co2_01,    type: co2,               zone: 0, host: pi, device: mhz19b, port: /dev/ttyAMA0, interval_s: 60 }
+  - { id: co2_01,    type: co2,               zone: 0, host: pi, device: mhz19b, port: /dev/ttyAMA0, interval_s: 60, full_scale: 5000 }
   - { id: ph_01,     type: ph,                zone: 0, host: pi, device: ads1115@0x48, channel: A0, divider: 2.0, calibration: two_point, interval_s: 300 }
   - { id: ec_01,     type: ec,                zone: 0, host: pi, device: ads1115@0x48, channel: A1, calibration: two_point, interval_s: 300 }
   - { id: wtemp_01,  type: water_temperature, zone: 0, host: pi, device: ds18b20, pin: GPIO18, interval_s: 60 }

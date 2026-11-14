@@ -84,3 +84,9 @@ The cloud replica lists presets but refuses writes (409).
 cycles or node offline), `INVALID` (implausible or failed read), `UNCALIBRATED`
 (needs calibration constants that are not recorded yet). Only `VALID` readings
 feed the control loop. A failed read is published with `value: null`, never 0.
+A reading at or above a sensor's `full_scale` (registry, per sensor; `co2_01`: 5000 ppm,
+the MH-Z19B's top reading) is `INVALID` with `value: null`; the raw reading is kept.
+
+Readings taken before the Pi's clock is trusted (NTP synced, or a hardware clock with a
+valid time) are published live but stored only once the clock is trusted, with times
+worked back from the monotonic clock (`GH_CLOCK_CHECK`, `controller/greenhouse/clock.py`).

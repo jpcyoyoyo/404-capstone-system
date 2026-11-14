@@ -17,6 +17,10 @@ def evaluate(sd: SensorDef, raw: float | None, ok: bool, constants: dict | None,
         return None, "INVALID"
     if sd.type == "float_switch":
         return (1.0 if raw >= 0.5 else 0.0), "VALID"
+    # A sensor pinned at its top reading is not measuring (MH-Z19B at 5000 ppm, 7-9 Nov 2026).
+    full_scale = sd.extra.get("full_scale")
+    if full_scale is not None and float(raw) >= float(full_scale):
+        return None, "INVALID"
     if sd.calibration == "dry_wet" and constants:
         lo, hi = sorted((float(constants["dry"]), float(constants["wet"])))
         # A disconnected or shorted probe reads far outside its own dry/wet span.

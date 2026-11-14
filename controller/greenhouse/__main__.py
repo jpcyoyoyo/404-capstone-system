@@ -175,10 +175,13 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.cmd == "sensors":
+        from .clock import AlwaysTrusted, ClockCheck
         from .hal import make_hal
         from .services.sensors import SensorService
         bus = _bus(settings, "sensors")
-        svc = SensorService(reg, db, bus, make_hal(settings.hal, reg, outputs=False))  # outputs belong to greenhouse-control
+        clock = ClockCheck(settings.clock_check) if settings.hal == "pi" else AlwaysTrusted()
+        svc = SensorService(reg, db, bus, make_hal(settings.hal, reg, outputs=False),  # outputs belong to greenhouse-control
+                            clock=clock)
         svc.start()
         _wait_forever([svc.stop, bus.stop])
         return

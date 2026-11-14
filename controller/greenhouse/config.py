@@ -40,6 +40,8 @@ class Settings:
     cloud_url: str | None = field(default_factory=lambda: _env("GH_CLOUD_URL"))
     sync_token: str | None = field(default_factory=lambda: _env("GH_SYNC_TOKEN"))
     sync_interval_s: float = field(default_factory=lambda: float(_env("GH_SYNC_INTERVAL_S", "60")))
+    # Hold readings until the Pi's clock is trusted (greenhouse.clock). Only used with GH_HAL=pi.
+    clock_check: bool = field(default_factory=lambda: _env("GH_CLOCK_CHECK", "1") != "0")
     # Dev-only fault-injection endpoints (/sim/*). Never enable on the real Pi.
     enable_sim_api: bool = field(default_factory=lambda: _env("GH_ENABLE_SIM_API", "0") == "1")
 
