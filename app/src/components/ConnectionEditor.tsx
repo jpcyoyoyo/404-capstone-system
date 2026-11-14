@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { IonButton } from '@ionic/react';
-import { useConnection, ControllerAddress } from '../contexts/ConnectionContext';
+import { useConnection, ControllerAddress, DEFAULT_CLOUD_URL } from '../contexts/ConnectionContext';
 import { fmtTime } from './format';
 
 const PRESETS: ControllerAddress[] = [
@@ -82,7 +82,8 @@ const ConnectionEditor: React.FC<{ compact?: boolean }> = ({ compact }) => {
             <span className="sg-filter-pill" onClick={() => setRows(rs => [...rs, { label: 'Custom', url: '' }])}>+ Custom</span>
           </div>
           <div style={{ fontSize: 12, color: 'var(--sg-muted)', margin: '6px 0' }}>Cloud address (remote viewing, optional)</div>
-          <input style={{ ...input, width: '100%' }} value={cloud} placeholder="https://greenhouse.example.com" inputMode="url" onChange={e => setCloud(e.target.value)} />
+          <input style={{ ...input, width: '100%' }} value={cloud} placeholder={DEFAULT_CLOUD_URL || 'https://greenhouse.example.com'} inputMode="url" onChange={e => setCloud(e.target.value)} />
+          {DEFAULT_CLOUD_URL && <div style={{ fontSize: 11, color: 'var(--sg-dim)', marginTop: 4 }}>Left blank, the demo server is used.</div>}
           <IonButton expand="block" size="small" disabled={!dirty} style={{ marginTop: 10 }} onClick={save}>Save addresses</IonButton>
         </>
       )}

@@ -36,6 +36,13 @@ interface ConnectionApi extends ConnectionSettings {
 
 const STORAGE_KEY = 'sg-connection';
 
+/**
+ * The cloud replica the app falls back to when no controller answers (the Railway demo server,
+ * deploy/cloud/RAILWAY.md). Used whenever the saved cloud address is blank, so an installed app
+ * picks it up without re-entering it. Set to '' once the Railway services are deleted.
+ */
+export const DEFAULT_CLOUD_URL = 'https://404-capstone-system-production.up.railway.app';
+
 function defaultControllers(): ControllerAddress[] {
   if (typeof window === 'undefined') return [];
   if (Capacitor.isNativePlatform()) return [
@@ -53,10 +60,10 @@ function load(): ConnectionSettings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      return { mode: s.mode === 'demo' ? 'demo' : 'live', controllers: Array.isArray(s.controllers) ? s.controllers : defaultControllers(), cloudUrl: s.cloudUrl ?? '' };
+      return { mode: s.mode === 'demo' ? 'demo' : 'live', controllers: Array.isArray(s.controllers) ? s.controllers : defaultControllers(), cloudUrl: s.cloudUrl || DEFAULT_CLOUD_URL };
     }
   } catch { /* ignore corrupt storage */ }
-  return { mode: 'live', controllers: defaultControllers(), cloudUrl: '' };
+  return { mode: 'live', controllers: defaultControllers(), cloudUrl: DEFAULT_CLOUD_URL };
 }
 
 const Ctx = createContext<ConnectionApi | null>(null);
@@ -128,7 +135,7 @@ export const ConnectionProvider: React.FC<{ children: ReactNode }> = ({ children
     ...settings, link, activeBase, checking, lastCheckedAt, resolve,
     setMode: (mode) => setSettings(s => ({ ...s, mode })),
     setControllers: (controllers) => setSettings(s => ({ ...s, controllers })),
-    setCloudUrl: (cloudUrl) => setSettings(s => ({ ...s, cloudUrl })),
+    setCloudUrl: (cloudUrl) => setSettings(s => ({ ...s, cloudUrl: cloudUrl || DEFAULT_CLOUD_URL })),
     test: async (url) => { const base = normaliseBase(url); return { ...(await probe(base, 4000)), base }; },
   }), [settings, link, activeBase, checking, lastCheckedAt, resolve]);
 

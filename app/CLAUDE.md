@@ -8,7 +8,8 @@ shared data contract.
 ## Data flow
 
 ```
-ConnectionProvider   which backend: live (controller addresses tried in order, then cloud) or demo
+ConnectionProvider   which backend: live (controller addresses tried in order, then cloud) or demo;
+                     a blank cloud address means DEFAULT_CLOUD_URL (the Railway demo server)
   AuthProvider       live: POST /auth/login → access + refresh tokens + MQTT info; demo: local session
     GreenhouseProvider → LiveProvider (REST + MQTT over WebSocket, 5 s polling fallback, cached snapshot offline)
                        → DemoProvider (simulation/demoEngine.ts; every command acked SIMULATED)
