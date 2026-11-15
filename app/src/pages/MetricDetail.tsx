@@ -7,7 +7,8 @@ import StatusBanner from '../components/StatusBanner';
 import LineChart, { ChartSeries } from '../components/LineChart';
 import PillScroller from '../components/PillScroller';
 import { RANGES, RangeId } from '../components/chartScale';
-import { PerSensor, mergeSensors, useHistoryChart } from '../components/useHistoryChart';
+import { PerSensor, useHistoryChart } from '../components/useHistoryChart';
+import { zoneSeries } from '../components/zoneSeries';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { formatMetric, METRIC_INFO, metricFromRoute } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
@@ -18,7 +19,6 @@ import { eventAction, plainDetail } from '../contract/codes';
 import { LiveValue } from '../components/motion';
 
 const CHOICES: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'co2', 'ph', 'water_level', 'water_temperature', 'stock_weight'];
-const ZONE_COLORS: Record<string, string> = { '0': '#14b8a6', '1': '#22c55e', '2': '#3b82f6' };
 const RELATED_ACT: Partial<Record<MetricKey, string>> = { soil_moisture: 'irrigation', light: 'lights', humidity: 'irrigation', stock_weight: 'doser', water_level: 'pump' };
 
 const MetricDetail: React.FC = () => {
@@ -43,19 +43,7 @@ const MetricDetail: React.FC = () => {
   const info = METRIC_INFO[metric];
 
   // One line per zone: the zone's sensors averaged group by group, with the zone's lowest and highest reading.
-  const toSeries = useCallback((data: PerSensor): ChartSeries[] => {
-    const byZone = new Map<number, PerSensor[string][]>();
-    for (const [sid, pts] of Object.entries(data)) {
-      const s = gh.meta.sensors.find(x => x.id === sid);
-      if (!s || !pts.length) continue;
-      byZone.set(s.zone, [...(byZone.get(s.zone) ?? []), pts]);
-    }
-    return [...byZone.entries()].sort((a, b) => a[0] - b[0]).map(([z, lists]) => ({
-      name: gh.meta.zones.find(x => x.id === z)?.name ?? `Zone ${z}`,
-      color: ZONE_COLORS[String(z)] ?? '#a855f7',
-      points: mergeSensors(lists),
-    }));
-  }, [gh.meta]);
+  const toSeries = useCallback((data: PerSensor): ChartSeries[] => zoneSeries(gh.meta, data), [gh.meta]);
   const hc = useHistoryChart(gh.data.history, { type: metric }, metric, rangeId, toSeries);
   const { loading, err } = hc;
 

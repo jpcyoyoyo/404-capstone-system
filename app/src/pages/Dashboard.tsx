@@ -10,9 +10,12 @@ import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { formatMetric } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
 import { METRIC_ICON, ACTUATOR_ICON, statusColor, statusWord, bandPosition } from '../components/display';
-import { fmtTime, untilText } from '../components/format';
+import { fmtDateTime, fmtTime, untilText } from '../components/format';
 import { alertTitle } from '../contract/codes';
 import { FlashBox, LiveValue, Skeleton } from '../components/motion';
+import TrendCard from '../components/TrendCard';
+import { useDesktop } from '../components/useMedia';
+import { SEV_COLOR, SEV_ICON } from './Alerts';
 
 const SNAPSHOT: MetricKey[] = ['temperature', 'humidity', 'soil_moisture', 'light', 'ph', 'co2'];
 const SYSTEMS = ['irrigation', 'lights', 'doser', 'fan_exhaust'];
@@ -21,6 +24,7 @@ const Dashboard: React.FC = () => {
   const history = useHistory();
   const gh = useGreenhouse();
   const { formatTemp } = useAppSettings();
+  const desktop = useDesktop();
   const stage = gh.meta.stages.find(s => s.id === gh.activeStageId);
   const critical = gh.openAlerts.filter(a => a.severity === 'critical' || a.severity === 'high');
   const irr = gh.actuators.irrigation;
@@ -31,9 +35,8 @@ const Dashboard: React.FC = () => {
   return (
     <IonPage>
       <PersistentHeader />
-      <IonContent className="ion-padding">
+      <IonContent className="ion-padding sg-wide">
         <StatusBanner />
-
         {critical.length > 0 && (
           <div className={`sg-banner-solid-crit${critical.every(a => a.acknowledged_at) ? ' sg-seen' : ''}`}>
             <div>
@@ -45,132 +48,160 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        <div className="sg-row-between" style={{ marginBottom: 12 }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--sg-dim)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Last update</div>
-            <div style={{ fontSize: 13, color: 'var(--sg-text)', fontWeight: 500 }}>{fmtTime(gh.lastUpdate, true)}</div>
+        {/* Phones: one column in `order`. Desktop (theme/layout.css): readings and trend on the left,
+            stage, devices, reservoir and open alerts on the right. */}
+        <div className="sg-dash">
+          <div className="sg-dash-col">
+            <div className="sg-row-between" style={{ marginBottom: 12, order: 1 }}>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--sg-dim)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Last update</div>
+                <div style={{ fontSize: 13, color: 'var(--sg-text)', fontWeight: 500 }}>{fmtTime(gh.lastUpdate, true)}</div>
+              </div>
+              <div className="sg-row sg-gap-4" style={{ color: '#22c55e', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                onClick={() => history.push('/tabs/schedules')}>
+                Thresholds <IonIcon icon={chevronForward} />
+              </div>
+            </div>
+            <div className="sg-row-between" style={{ marginBottom: 8, order: 3 }}>
+              <div className="sg-section-title" style={{ marginBottom: 0 }}>Environment</div>
+              <span style={{ fontSize: 12, color: '#3b82f6', cursor: 'pointer' }} onClick={() => history.push('/tabs/live-monitor')}>By zone</span>
+            </div>
+            <div className="sg-env-grid" style={{ order: 4, ...grey }}>
+              {SNAPSHOT.map(k => {
+                const m = gh.metrics[k];
+                const t = k === 'temperature' && m.value !== null ? formatTemp(m.value) : null;
+                const value = t ? t.value : formatMetric(k, m.value);
+                const unit = t ? t.unit : k === 'light' && m.value !== null && m.value >= 1000 ? 'lux' : k === 'ph' ? '' : m.unit;
+                const c = statusColor(m.status);
+                return (
+                  <FlashBox key={k} watch={value} color={c} className="sg-snap-tile" onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)} style={{ cursor: 'pointer' }}>
+                    <div className="sg-row sg-gap-8" style={{ marginBottom: 6 }}>
+                      <div className="sg-icon-chip" style={{ width: 28, height: 28, background: `${c}1f`, color: c }}>
+                        <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 14 }} />
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{m.label}</span>
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sg-text)', lineHeight: 1 }}>
+                      {!gh.ready ? <Skeleton w={64} h={20} /> : <LiveValue value={value} />}<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 2, color: 'var(--sg-muted)' }}>{m.value !== null ? unit : ''}</span>
+                    </div>
+                    <div className="sg-bar-track" style={{ marginTop: 6 }}>
+                      <div className="sg-bar-fill" style={{ width: `${bandPosition(m.value, m.band)}%`, background: c }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: c, marginTop: 4, fontWeight: 600, transition: 'color var(--sg-dur-2)' }}>
+                      <LiveValue value={m.note ?? statusWord(m.status)} />{m.band ? <span style={{ color: 'var(--sg-dim)', fontWeight: 400 }}> · {m.band.min}–{m.band.max}</span> : null}
+                    </div>
+                  </FlashBox>
+                );
+              })}
+            </div>
+            {desktop && <div style={{ order: 9 }}><TrendCard /></div>}
+            <div className="sg-mobile-only" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginTop: 4, marginBottom: 8, order: 7 }}>
+              {[
+                { label: 'Controls', icon: optionsOutline,       color: '#3b82f6', path: '/tabs/controls' },
+                { label: 'Dose',     icon: flaskOutline,         color: '#a855f7', path: '/tabs/fertigation' },
+                { label: 'Records',  icon: analyticsOutline,     color: '#22c55e', path: '/tabs/records' },
+                { label: 'Alerts',   icon: notificationsOutline, color: '#ef4444', path: '/tabs/alerts' },
+              ].map(a => (
+                <div key={a.label} className="sg-pressable" onClick={() => history.push(a.path)} style={{ textAlign: 'center', cursor: 'pointer' }}>
+                  <div className="sg-icon-chip" style={{ margin: '0 auto 4px', background: `${a.color}1f`, color: a.color, width: 44, height: 44, borderRadius: 14 }}>
+                    <IonIcon icon={a.icon} style={{ fontSize: 18 }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--sg-muted)', fontWeight: 600 }}>{a.label}</div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="sg-row sg-gap-4" style={{ color: '#22c55e', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            onClick={() => history.push('/tabs/schedules')}>
-            Thresholds <IonIcon icon={chevronForward} />
-          </div>
-        </div>
-
-        <div className="sg-card" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)' }}>
-          <span className="sg-pill sg-pill-ok" style={{ marginBottom: 8, display: 'inline-block' }}>Active stage</span>
-          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sg-text)', letterSpacing: 0.5 }}>
-            {(stage?.name ?? gh.activeStageId).toUpperCase()}
-            {gh.activePreset && (
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-muted)', letterSpacing: 0 }}>
-                {' · '}{gh.activePreset.name}{gh.activePreset.modified ? ' (edited)' : ''}
-              </span>
+          <div className="sg-dash-col">
+            <div className="sg-card" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', order: 2 }}>
+              <span className="sg-pill sg-pill-ok" style={{ marginBottom: 8, display: 'inline-block' }}>Active stage</span>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sg-text)', letterSpacing: 0.5 }}>
+                {(stage?.name ?? gh.activeStageId).toUpperCase()}
+                {gh.activePreset && (
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-muted)', letterSpacing: 0 }}>
+                    {' · '}{gh.activePreset.name}{gh.activePreset.modified ? ' (edited)' : ''}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginTop: 2 }}>
+                {stage?.description} · irrigation by {stage?.irrigation_mode}
+              </div>
+              {gh.stageSchedule && (
+                <div style={{ fontSize: 12, color: gh.stageSchedule.harvest_due ? '#f59e0b' : 'var(--sg-text)', marginTop: 6, fontWeight: 600 }}>
+                  {scheduleLine(gh.stageSchedule, id => gh.meta.stages.find(s => s.id === id)?.name ?? id)}
+                </div>
+              )}
+            </div>
+            <div className="sg-card" style={{ order: 5 }}>
+              <div className="sg-section-title">Devices</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {SYSTEMS.map(id => {
+                  const def = gh.meta.actuators.find(a => a.id === id);
+                  const st = gh.actuators[id];
+                  if (!def) return null;
+                  const on = !!st?.on;
+                  return (
+                    <div key={id} className="sg-act-pill" onClick={() => history.push('/tabs/controls')} style={{ opacity: def.installed ? 1 : 0.5 }}>
+                      <IonIcon icon={ACTUATOR_ICON[id]} style={{ fontSize: 12 }} />
+                      <span className={`sg-live-dot${on ? ' on' : ''}`} style={{ color: on ? '#22c55e' : 'var(--sg-border)', marginRight: 0, flexShrink: 0 }} />
+                      <span>{def.name}{!def.installed ? ' (not installed)' : st?.mode === 'MANUAL' ? ' · manual' : ''}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {irr?.on && (
+                <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 8 }}>
+                  Irrigating by {irr.circuit} since {fmtTime(irr.since ?? irr.ts)}{irr.manual_until ? ` · ${untilText(irr.manual_until)}` : ''}
+                </div>
+              )}
+            </div>
+            <div className="sg-card" style={{ cursor: 'pointer', order: 6, ...grey }} onClick={() => history.push('/tabs/fertigation')}>
+              <div className="sg-row-between" style={{ marginBottom: 8 }}>
+                <div className="sg-row sg-gap-8">
+                  <IonIcon icon={waterOutline} style={{ color: '#3b82f6' }} />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Reservoir</span>
+                </div>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}><LiveValue value={formatMetric('water_level', level.value)} />{level.value !== null ? '%' : ''}</span>
+              </div>
+              <div className="sg-bar-track">
+                <div className="sg-bar-fill" style={{ width: `${level.value ?? 0}%`, background: statusColor(level.status) }} />
+              </div>
+              <div className="sg-row-between" style={{ marginTop: 10, marginBottom: 6 }}>
+                <div className="sg-row sg-gap-8">
+                  <IonIcon icon={flaskOutline} style={{ color: '#a855f7' }} />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Stock solution</span>
+                </div>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>{stock.value !== null ? `${(stock.value / 1000).toFixed(2)} kg` : '—'}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--sg-dim)' }}>
+                pH {formatMetric('ph', gh.metrics.ph.value)} · water {formatMetric('water_temperature', gh.metrics.water_temperature.value)}°C
+                {gh.metrics.ec.installed ? ` · EC ${formatMetric('ec', gh.metrics.ec.value)}` : ''}
+              </div>
+            </div>
+            {desktop && (
+              <div className="sg-card" style={{ order: 8 }}>
+                <div className="sg-row-between" style={{ marginBottom: 6 }}>
+                  <div className="sg-section-title" style={{ marginBottom: 0 }}>Open alerts</div>
+                  <span style={{ fontSize: 12, color: '#3b82f6', cursor: 'pointer' }} onClick={() => history.push('/tabs/alerts')}>All alerts</span>
+                </div>
+                {gh.openAlerts.length === 0
+                  ? <div style={{ fontSize: 12, color: 'var(--sg-muted)', padding: '6px 0' }}>No open alerts.</div>
+                  : gh.openAlerts.slice(0, 5).map((a, i) => (
+                    <div key={a.id} className="sg-row sg-gap-8" onClick={() => history.push(`/tabs/alert-detail/${a.id}`)}
+                      style={{ padding: '8px 0', borderTop: i ? '1px solid var(--sg-border)' : 'none', cursor: 'pointer', alignItems: 'flex-start' }}>
+                      <IonIcon icon={SEV_ICON[a.severity]} style={{ color: SEV_COLOR[a.severity], fontSize: 16, flexShrink: 0, marginTop: 1 }} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="sg-row-between" style={{ gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sg-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{alertTitle(a.code)}</span>
+                          <span style={{ fontSize: 11, color: 'var(--sg-dim)', flexShrink: 0 }}>{fmtDateTime(a.raised_at)}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--sg-muted)', lineHeight: 1.4 }}>{a.message}</div>
+                      </div>
+                    </div>
+                  ))}
+                {gh.openAlerts.length > 5 && <div style={{ fontSize: 11, color: 'var(--sg-dim)', paddingTop: 4 }}>and {gh.openAlerts.length - 5} more</div>}
+              </div>
             )}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--sg-muted)', marginTop: 2 }}>
-            {stage?.description} · irrigation by {stage?.irrigation_mode}
-          </div>
-          {gh.stageSchedule && (
-            <div style={{ fontSize: 12, color: gh.stageSchedule.harvest_due ? '#f59e0b' : 'var(--sg-text)', marginTop: 6, fontWeight: 600 }}>
-              {scheduleLine(gh.stageSchedule, id => gh.meta.stages.find(s => s.id === id)?.name ?? id)}
-            </div>
-          )}
-        </div>
-
-        <div className="sg-row-between" style={{ marginBottom: 8 }}>
-          <div className="sg-section-title" style={{ marginBottom: 0 }}>Environment</div>
-          <span style={{ fontSize: 12, color: '#3b82f6', cursor: 'pointer' }} onClick={() => history.push('/tabs/live-monitor')}>By zone</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14, ...grey }}>
-          {SNAPSHOT.map(k => {
-            const m = gh.metrics[k];
-            const t = k === 'temperature' && m.value !== null ? formatTemp(m.value) : null;
-            const value = t ? t.value : formatMetric(k, m.value);
-            const unit = t ? t.unit : k === 'light' && m.value !== null && m.value >= 1000 ? 'lux' : k === 'ph' ? '' : m.unit;
-            const c = statusColor(m.status);
-            return (
-              <FlashBox key={k} watch={value} color={c} className="sg-snap-tile" onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)} style={{ cursor: 'pointer' }}>
-                <div className="sg-row sg-gap-8" style={{ marginBottom: 6 }}>
-                  <div className="sg-icon-chip" style={{ width: 28, height: 28, background: `${c}1f`, color: c }}>
-                    <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 14 }} />
-                  </div>
-                  <span style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{m.label}</span>
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sg-text)', lineHeight: 1 }}>
-                  {!gh.ready ? <Skeleton w={64} h={20} /> : <LiveValue value={value} />}<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 2, color: 'var(--sg-muted)' }}>{m.value !== null ? unit : ''}</span>
-                </div>
-                <div className="sg-bar-track" style={{ marginTop: 6 }}>
-                  <div className="sg-bar-fill" style={{ width: `${bandPosition(m.value, m.band)}%`, background: c }} />
-                </div>
-                <div style={{ fontSize: 10, color: c, marginTop: 4, fontWeight: 600, transition: 'color var(--sg-dur-2)' }}>
-                  <LiveValue value={m.note ?? statusWord(m.status)} />{m.band ? <span style={{ color: 'var(--sg-dim)', fontWeight: 400 }}> · {m.band.min}–{m.band.max}</span> : null}
-                </div>
-              </FlashBox>
-            );
-          })}
-        </div>
-
-        <div className="sg-card">
-          <div className="sg-section-title">Devices</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {SYSTEMS.map(id => {
-              const def = gh.meta.actuators.find(a => a.id === id);
-              const st = gh.actuators[id];
-              if (!def) return null;
-              const on = !!st?.on;
-              return (
-                <div key={id} className="sg-act-pill" onClick={() => history.push('/tabs/controls')} style={{ opacity: def.installed ? 1 : 0.5 }}>
-                  <IonIcon icon={ACTUATOR_ICON[id]} style={{ fontSize: 12 }} />
-                  <span className={`sg-live-dot${on ? ' on' : ''}`} style={{ color: on ? '#22c55e' : 'var(--sg-border)', marginRight: 0, flexShrink: 0 }} />
-                  <span>{def.name}{!def.installed ? ' (not installed)' : st?.mode === 'MANUAL' ? ' · manual' : ''}</span>
-                </div>
-              );
-            })}
-          </div>
-          {irr?.on && (
-            <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 8 }}>
-              Irrigating by {irr.circuit} since {fmtTime(irr.since ?? irr.ts)}{irr.manual_until ? ` · ${untilText(irr.manual_until)}` : ''}
-            </div>
-          )}
-        </div>
-
-        <div className="sg-card" style={{ cursor: 'pointer', ...grey }} onClick={() => history.push('/tabs/fertigation')}>
-          <div className="sg-row-between" style={{ marginBottom: 8 }}>
-            <div className="sg-row sg-gap-8">
-              <IonIcon icon={waterOutline} style={{ color: '#3b82f6' }} />
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Reservoir</span>
-            </div>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}><LiveValue value={formatMetric('water_level', level.value)} />{level.value !== null ? '%' : ''}</span>
-          </div>
-          <div className="sg-bar-track">
-            <div className="sg-bar-fill" style={{ width: `${level.value ?? 0}%`, background: statusColor(level.status) }} />
-          </div>
-          <div className="sg-row-between" style={{ marginTop: 10, marginBottom: 6 }}>
-            <div className="sg-row sg-gap-8">
-              <IonIcon icon={flaskOutline} style={{ color: '#a855f7' }} />
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Stock solution</span>
-            </div>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>{stock.value !== null ? `${(stock.value / 1000).toFixed(2)} kg` : '—'}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--sg-dim)' }}>
-            pH {formatMetric('ph', gh.metrics.ph.value)} · water {formatMetric('water_temperature', gh.metrics.water_temperature.value)}°C
-            {gh.metrics.ec.installed ? ` · EC ${formatMetric('ec', gh.metrics.ec.value)}` : ''}
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginTop: 4, marginBottom: 8 }}>
-          {[
-            { label: 'Controls', icon: optionsOutline,       color: '#3b82f6', path: '/tabs/controls' },
-            { label: 'Dose',     icon: flaskOutline,         color: '#a855f7', path: '/tabs/fertigation' },
-            { label: 'Records',  icon: analyticsOutline,     color: '#22c55e', path: '/tabs/records' },
-            { label: 'Alerts',   icon: notificationsOutline, color: '#ef4444', path: '/tabs/alerts' },
-          ].map(a => (
-            <div key={a.label} className="sg-pressable" onClick={() => history.push(a.path)} style={{ textAlign: 'center', cursor: 'pointer' }}>
-              <div className="sg-icon-chip" style={{ margin: '0 auto 4px', background: `${a.color}1f`, color: a.color, width: 44, height: 44, borderRadius: 14 }}>
-                <IonIcon icon={a.icon} style={{ fontSize: 18 }} />
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--sg-muted)', fontWeight: 600 }}>{a.label}</div>
-            </div>
-          ))}
         </div>
       </IonContent>
     </IonPage>

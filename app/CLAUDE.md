@@ -48,6 +48,15 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
 - New device or sensor: add it to `contract/registry.yaml`, regenerate, and the pages pick it up
   from `meta.actuators` / `meta.sensors`.
 - Styling: inline styles on `var(--sg-*)` tokens plus the `sg-*` classes in `theme/global.css`.
+- Layout: `theme/layout.css` holds every width rule. Phones must work at 360 px with the phone's
+  large-text setting on (Android scales the app's text with it): nothing may run off the right edge,
+  rows of choices go under their label (`SettingRow wide` in AppSettings), and long labels wrap or end
+  in … rather than being cut. From 992px (`useDesktop()` in `components/useMedia.ts`, same breakpoint
+  as the CSS) `pages/MainTabs.tsx` shows `components/SideNav.tsx` instead of the tab bar and padded
+  pages are centred (880px, or 1240px with class `sg-wide`). The Dashboard keeps one DOM order for
+  both: blocks carry an `order`, the two `.sg-dash-col` wrappers are `display: contents` on phones;
+  desktop-only parts (`TrendCard`, open alerts) are rendered only when `useDesktop()` is true so a
+  phone never fetches their history. A new tab page also goes in SideNav's list.
 - History charts: `components/LineChart.tsx` draws, `components/chartScale.ts` holds the arithmetic
   (data plan per window, grouping at local midnight, gaps, ticks, monotone curve, zoom/pan limits;
   tested in `chartScale.test.ts`), and `components/useHistoryChart.ts` loads the range plus finer data
@@ -69,6 +78,8 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
   always, gate inside the page.
 
 ## Routes
+
+The same routes on every screen size; on desktop SideNav lists them instead of the tab bar and More.
 
 `/login`, `/quick-setup`, `/kiosk` (no sign-in; `?demo=1`, `?token=`, `?api=`; N opens the Network panel,
 whose Wi-Fi and cloud set-up need an administrator sign-in held in memory only), and under `/tabs`:

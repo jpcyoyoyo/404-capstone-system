@@ -16,13 +16,18 @@ const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   <div className="sg-section-title" style={{ marginTop: 4, marginBottom: 10 }}>{children}</div>
 );
 
-const SettingRow: React.FC<{ label: string; sub?: string; children: React.ReactNode }> = ({ label, sub, children }) => (
-  <div className="sg-row-between" style={{ padding: '11px 0', borderBottom: '1px solid var(--sg-border)' }}>
-    <div>
-      <div style={{ fontSize: 14, color: 'var(--sg-text)', fontWeight: 500 }}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 2 }}>{sub}</div>}
+/** One setting: label (and hint) on the left, its control on the right. A `wide` control (a row of
+ *  choices) moves under its label when the card is narrow (theme/layout.css), so a phone with large
+ *  system text never pushes a choice off the screen. */
+const SettingRow: React.FC<{ label: string; sub?: string; wide?: boolean; children: React.ReactNode }> = ({ label, sub, wide, children }) => (
+  <div className="sg-setting">
+    <div className={`sg-setting-row${wide ? ' wide' : ''}`}>
+      <div className="sg-setting-text">
+        <div style={{ fontSize: 14, color: 'var(--sg-text)', fontWeight: 500 }}>{label}</div>
+        {sub && <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 2 }}>{sub}</div>}
+      </div>
+      <div className="sg-setting-ctl">{children}</div>
     </div>
-    <div style={{ flexShrink: 0, marginLeft: 12 }}>{children}</div>
   </div>
 );
 
@@ -34,12 +39,12 @@ const ChipGroup = <T extends string>({
   onChange: (v: T) => void;
   colors?: Record<T, string>;
 }) => (
-  <div style={{ display: 'flex', gap: 6 }}>
+  <div className="sg-chip-group" role="radiogroup">
     {options.map(o => {
       const active = value === o;
       const accent = colors ? colors[o] : '#22c55e';
       return (
-        <button key={o} onClick={() => onChange(o)} style={{
+        <button key={o} type="button" role="radio" aria-checked={active} onClick={() => onChange(o)} style={{
           background: active ? `${accent}20` : 'var(--sg-elevated)',
           border: `1px solid ${active ? accent + '60' : 'var(--sg-border)'}`,
           borderRadius: 20, padding: '4px 11px', fontSize: 12, cursor: 'pointer',
@@ -91,7 +96,7 @@ const AppSettings: React.FC = () => {
         {/* ── CONNECTION ── */}
         <div className="sg-card">
           <SectionTitle>Connection</SectionTitle>
-          <SettingRow label="Data source" sub="Switching signs you out">
+          <SettingRow wide label="Data source" sub="Switching signs you out">
             <ChipGroup<'live' | 'demo'> options={['live', 'demo']} value={conn.mode} onChange={switchMode}
               colors={{ live: '#22c55e', demo: '#f59e0b' }} />
           </SettingRow>
@@ -102,7 +107,7 @@ const AppSettings: React.FC = () => {
         <div className="sg-card">
           <SectionTitle>Appearance</SectionTitle>
 
-          <SettingRow label="Theme" sub="Controls the overall colour scheme">
+          <SettingRow wide label="Theme" sub="Controls the overall colour scheme">
             <ChipGroup<Theme>
               options={['dark', 'light', 'system']}
               value={theme}
@@ -123,11 +128,11 @@ const AppSettings: React.FC = () => {
             </div>
           </SettingRow>
 
-          <SettingRow label="Font Size" sub="Applies to metric values and body text">
+          <SettingRow wide label="Font Size" sub="Applies to metric values and body text">
             <ChipGroup<FontSize> options={['small', 'medium', 'large']} value={fontSize} onChange={setFontSize} />
           </SettingRow>
 
-          <SettingRow label="Card Density" sub="How much information fits on screen">
+          <SettingRow wide label="Card Density" sub="How much information fits on screen">
             <ChipGroup<Density> options={['compact', 'normal', 'comfortable']} value={density} onChange={setDensity} />
           </SettingRow>
 
@@ -158,12 +163,12 @@ const AppSettings: React.FC = () => {
         <div className="sg-card">
           <SectionTitle>Display &amp; Units</SectionTitle>
 
-          <SettingRow label="Unit System">
+          <SettingRow wide label="Unit System">
             <ChipGroup<Units> options={['metric', 'imperial']} value={units} onChange={setUnits} />
           </SettingRow>
 
-          <SettingRow label="Number Format" sub="How large numbers are formatted">
-            <div style={{ display: 'flex', gap: 6 }}>
+          <SettingRow wide label="Number Format" sub="How large numbers are formatted">
+            <div className="sg-chip-group">
               {(['1,234.5', '1.234,5'] as const).map(f => (
                 <button key={f} onClick={() => setNumFmt(f)} style={{
                   background: numFmt === f ? 'rgba(34,197,94,0.15)' : 'var(--sg-elevated)',
@@ -179,8 +184,8 @@ const AppSettings: React.FC = () => {
             <ChipGroup<'utc' | 'local'> options={['utc', 'local']} value={timezone} onChange={setTimezone} />
           </SettingRow>
 
-          <SettingRow label="Date Format">
-            <div style={{ display: 'flex', gap: 6 }}>
+          <SettingRow wide label="Date Format">
+            <div className="sg-chip-group">
               {[{ v: 'iso' as const, label: '2026-05-29' }, { v: 'regional' as const, label: '29/05/2026' }].map(f => (
                 <button key={f.v} onClick={() => setDateFmt(f.v)} style={{
                   background: dateFmt === f.v ? 'rgba(34,197,94,0.15)' : 'var(--sg-elevated)',

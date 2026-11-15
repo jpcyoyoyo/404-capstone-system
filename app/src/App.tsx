@@ -34,6 +34,7 @@ import './theme/fonts.css';
 import './theme/variables.css';
 import './theme/global.css';
 import './theme/motion.css';
+import './theme/layout.css';
 
 setupIonicReact();
 

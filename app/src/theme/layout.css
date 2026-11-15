@@ -1,0 +1,160 @@
+/* SmartGreenhouse responsive layout.
+   1. Narrow phones, including phones with large system text (Android scales the app's text with
+      the phone's font size, so a 360 dp phone can behave like a 280 px screen).
+   2. The desktop web app: from 992px wide (components/useMedia.ts DESKTOP_QUERY) the bottom tab
+      bar gives way to a side navigation and pages are centred at a readable width. Used for
+      remote monitoring in a browser, e.g. the cloud server's own address. */
+
+/* ── Header (components/PersistentHeader.tsx) ─────────────────────────── */
+ion-title.sg-hdr-title { padding-inline: 16px 4px; min-width: 0; }
+ion-title.sg-hdr-title.with-back { padding-inline-start: 2px; }
+.sg-hdr-name {
+  display: flex; align-items: center; gap: 5px; min-width: 0;
+  font-size: 15px; font-weight: 700; color: var(--sg-text); letter-spacing: -0.1px;
+}
+.sg-hdr-sub {
+  font-size: 10px; color: var(--sg-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+ion-buttons.sg-hdr-end { flex-shrink: 0; }
+.sg-hdr-status { text-align: right; line-height: 1.6; margin-right: 8px; }
+.sg-hdr-time-short { display: none; }
+
+@media (max-width: 430px) {
+  .sg-hdr-name { font-size: 14px; }
+  .sg-hdr-status { margin-right: 6px; }
+  .sg-hdr-time-full { display: none; }
+  .sg-hdr-time-short { display: inline; }
+  .sg-hdr-avatar { width: 28px !important; height: 28px !important; font-size: 11px !important; margin-right: 2px !important; }
+}
+
+/* ── Bottom tab bar: five tabs always fit, the alert badge stays on screen ── */
+ion-tab-button { --padding-start: 2px; --padding-end: 2px; min-width: 0; }
+ion-tab-button ion-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+ion-tab-button ion-badge { left: calc(50% + 2px); min-width: 18px; }
+/* Phones: each tab takes the width its label needs, so a long label (Nutrients) is not cut
+   while a short one (Live) has room to spare. */
+@media (max-width: 430px) {
+  ion-tab-button { flex: 1 1 auto; }
+}
+@media (max-width: 340px) {
+  ion-tab-button ion-label { font-size: 11px; }
+}
+
+/* Segmented tabs (Thresholds: Seedling / Growth / Mature): less side padding so a label fits. */
+ion-segment-button { --padding-start: 4px; --padding-end: 4px; min-width: 0; }
+
+/* ── Settings rows (pages/AppSettings.tsx) ───────────────────────────── */
+.sg-setting { container-type: inline-size; border-bottom: 1px solid var(--sg-border); }
+.sg-setting-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px 12px; padding: 11px 0;
+}
+.sg-setting-text { flex: 1 1 140px; min-width: 0; }
+.sg-setting-ctl { flex: 0 1 auto; max-width: 100%; margin-left: auto; }
+.sg-chip-group { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+/* A row of choices goes under its label when the card is narrow; the choices share the width. */
+@container (max-width: 440px) {
+  .sg-setting-row.wide { flex-direction: column; align-items: stretch; gap: 8px; }
+  .sg-setting-row.wide .sg-setting-text { flex-basis: auto; }
+  .sg-setting-row.wide .sg-setting-ctl { margin-left: 0; width: 100%; }
+  .sg-setting-row.wide .sg-chip-group { justify-content: stretch; }
+  /* each choice keeps its whole word; they share the spare width and wrap only if they must */
+  .sg-setting-row.wide .sg-chip-group > button { flex: 1 1 auto; padding-inline: 8px !important; text-align: center;
+    white-space: nowrap; min-height: 32px; }
+}
+
+/* ── Grids that widen with the screen ─────────────────────────────────── */
+.sg-env-grid  { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.sg-tile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+@media (min-width: 600px) {
+  .sg-env-grid  { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sg-tile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1200px) {
+  .sg-tile-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* ── Dashboard (pages/Dashboard.tsx) ─────────────────────────────────────
+   Phones: one column in reading order (each block carries an `order`). Desktop: two columns,
+   readings and the trend chart on the left, stage, devices, reservoir and alerts on the right. */
+.sg-dash { display: flex; flex-direction: column; }
+.sg-dash-col { display: contents; }
+.sg-desktop-only { display: none !important; }
+
+/* ── App shell (pages/MainTabs.tsx, components/SideNav.tsx) ─────────────── */
+.sg-shell { flex-direction: row; justify-content: flex-start; }
+.sg-shell-main { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; }
+.sg-sidenav { display: none; }
+
+@media (min-width: 992px) {
+  .sg-shell ion-tab-bar { display: none; }
+  .sg-mobile-only { display: none !important; }
+  .sg-desktop-only { display: revert !important; }
+
+  .sg-sidenav {
+    display: flex; flex-direction: column; flex: 0 0 236px; width: 236px; height: 100%;
+    background: var(--ion-toolbar-background, var(--sg-card));
+    border-right: 1px solid var(--sg-border);
+  }
+  .sg-sidenav-brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; }
+  .sg-sidenav-logo {
+    width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+    background: var(--sg-tint); color: var(--sg-green);
+  }
+  .sg-sidenav-app { font-size: 14px; font-weight: 700; color: var(--sg-text); letter-spacing: -0.1px; }
+  .sg-sidenav-site { font-size: 11px; color: var(--sg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sg-sidenav-scroll { flex: 1 1 auto; overflow-y: auto; padding: 0 10px 8px; }
+  .sg-sidenav-title {
+    font-size: 10px; font-weight: 600; color: var(--sg-dim); text-transform: uppercase;
+    letter-spacing: 0.8px; margin: 14px 10px 6px;
+  }
+  .sg-sidenav-item, .sg-sidenav-user {
+    display: flex; align-items: center; gap: 11px; width: 100%;
+    padding: 8px 10px; margin-bottom: 2px; border: 0; border-radius: 9px;
+    background: transparent; color: var(--sg-muted); cursor: pointer;
+    font: inherit; font-size: 13.5px; font-weight: 500; text-align: left;
+    transition: background-color var(--sg-dur-1) var(--sg-ease-std), color var(--sg-dur-1) var(--sg-ease-std);
+  }
+  .sg-sidenav-item ion-icon { font-size: 18px; flex-shrink: 0; }
+  .sg-sidenav-item:hover, .sg-sidenav-user:hover { background: var(--sg-elevated); color: var(--sg-text); }
+  .sg-sidenav-item.active { background: var(--sg-tint); color: var(--sg-green); font-weight: 600; }
+  .sg-sidenav-item:focus-visible, .sg-sidenav-user:focus-visible { outline: 2px solid var(--sg-green); outline-offset: 1px; }
+  .sg-sidenav-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sg-sidenav-badge {
+    margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px;
+    background: #ef4444; color: #fff; font-size: 10px; font-weight: 700; text-align: center;
+  }
+  .sg-sidenav-user {
+    width: auto; margin: 6px 10px 12px; padding: 10px; border-top: 1px solid var(--sg-border);
+    border-radius: 10px;
+  }
+  .sg-sidenav-user.active { background: var(--sg-tint); }
+  .sg-sidenav-avatar {
+    width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #22c55e 0%, #15803d 100%); color: #fff; font-size: 12px; font-weight: 800;
+  }
+  .sg-sidenav-uname { display: block; font-size: 13px; font-weight: 600; color: var(--sg-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sg-sidenav-urole { display: block; font-size: 11px; color: var(--sg-muted); }
+
+  /* Pages are centred at a readable width; overview pages (class sg-wide) use more of it. */
+  ion-content.ion-padding {
+    --padding-top: 20px; --padding-bottom: 32px;
+    --padding-start: max(24px, calc((100% - 880px) / 2));
+    --padding-end: max(24px, calc((100% - 880px) / 2));
+  }
+  ion-content.ion-padding.sg-wide {
+    --padding-start: max(24px, calc((100% - 1240px) / 2));
+    --padding-end: max(24px, calc((100% - 1240px) / 2));
+  }
+  .sg-shell ion-toolbar { --padding-start: 12px; --padding-end: 12px; }
+
+  .sg-dash { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 0 20px; align-items: start; }
+  .sg-dash-col { display: flex; flex-direction: column; min-width: 0; }
+
+  /* Pointer devices: hover feedback on things that open a page. */
+  .sg-snap-tile, .sg-metric-tile, .sg-act-pill { transition: border-color var(--sg-dur-1) var(--sg-ease-std), transform var(--sg-dur-1) var(--sg-ease-std); }
+  .sg-snap-tile:hover, .sg-metric-tile:hover, .sg-act-pill:hover { border-color: color-mix(in srgb, var(--sg-green) 55%, var(--sg-border)); }
+}

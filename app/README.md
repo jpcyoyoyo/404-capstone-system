@@ -2,8 +2,11 @@
 
 Ionic React + Capacitor. See [`CLAUDE.md`](CLAUDE.md) for how the app is put together and
 [`../README.md`](../README.md) for running it with the controller. This README covers building
-the Android APK. On the Pi the app is served by the controller itself (browser and `/kiosk`),
-so there is no separate desktop build.
+the Android APK. There is no separate desktop build: the same web build is served by the
+controller on the Pi (browser and `/kiosk`) and by the cloud server, and from 992px wide it switches
+to a desktop layout (side navigation instead of the bottom tabs, wider overview). On the cloud
+address it is the remote-monitoring web app, and Chrome or Edge can install it as a desktop app
+(`public/manifest.json`, icons in `public/icons/`).
 
 ## Prerequisites
 

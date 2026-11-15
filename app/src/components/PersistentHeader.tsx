@@ -40,35 +40,39 @@ const PersistentHeader: React.FC<PersistentHeaderProps> = ({
           </IonButtons>
         )}
 
-        <IonTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.35 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 15, fontWeight: 700, color: 'var(--sg-text)', minWidth: 0, letterSpacing: -0.1 }}>
-              <IonIcon icon={leaf} style={{ color: 'var(--sg-green)', fontSize: 15, flexShrink: 0 }} />
+        <IonTitle className={`sg-hdr-title${showBack ? ' with-back' : ''}`}>
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.35, minWidth: 0 }}>
+            <span className="sg-hdr-name" title={gh.meta.name}>
+              <IonIcon icon={leaf} style={{ color: 'var(--sg-green)', fontSize: '1em', flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gh.meta.name}</span>
             </span>
-            <span style={{ fontSize: 10, color: 'var(--sg-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span className="sg-hdr-sub">
               {gh.activePreset ? gh.activePreset.name.replace(/\s*\(default\)$/, '') : 'Custom thresholds'} · {stageName} stage
             </span>
           </div>
         </IonTitle>
 
-        <IonButtons slot="end">
-          <div style={{ textAlign: 'right', lineHeight: 1.6, marginRight: 8 }}>
+        <IonButtons slot="end" className="sg-hdr-end">
+          <div className="sg-hdr-status">
             <div style={{ fontSize: 10, color: LINK_COLOR[link], fontWeight: 600, whiteSpace: 'nowrap' }}>
               <span className={`sg-live-dot${gh.streaming && link !== 'offline' ? ' on' : ''}`} />
-              {gh.link === 'local' && !gh.controllerOnline ? 'Controller down' : LINK_LABEL[link]}
+              {gh.link === 'local' && !gh.controllerOnline ? 'Controller down'
+                : link === 'demo' ? <><span className="sg-hdr-time-full">Demo mode</span><span className="sg-hdr-time-short">Demo</span></> : LINK_LABEL[link]}
             </div>
             {e && gh.meta.capabilities.energy && (
               <div style={{ fontSize: 10, color: 'var(--sg-muted)' }}>
                 ☀ {e.solarW}W · <span style={{ color: batColor }}>🔋 {e.batteryPct.toFixed(0)}%</span>
               </div>
             )}
+            {/* narrow phones (theme/layout.css) drop the seconds so the time is never cut off */}
             <div style={{ fontSize: 10, color: 'var(--sg-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-              {gh.streaming ? 'Live' : 'Sync'} {fmtTime(gh.lastUpdate, true)}
+              {gh.streaming ? 'Live' : 'Sync'} <span className="sg-hdr-time-full">{fmtTime(gh.lastUpdate, true)}</span>
+              <span className="sg-hdr-time-short">{fmtTime(gh.lastUpdate)}</span>
             </div>
           </div>
 
           <div
+            className="sg-hdr-avatar"
             onClick={() => history.push('/tabs/profile')}
             title={session?.user.name}
             style={{

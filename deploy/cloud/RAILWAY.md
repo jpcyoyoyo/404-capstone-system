@@ -70,6 +70,23 @@ GitHub, and a terminal on the Pi.
 The accounts on the Pi are copied to the cloud with the first sync, so the same sign-ins work
 there. No account has to be created on Railway.
 
+## Remote monitoring in a browser
+
+The server also serves the web app at its root, so the address from step 5 is the remote
+monitoring site:
+
+1. On any computer, open `https://<name>.up.railway.app` and sign in with an account from the Pi.
+2. The header shows **Remote** and the time of the last sync. The overview shows the readings, a
+   trend chart (6 h to 30 days), the stage, devices, reservoir and open alerts; the side menu opens
+   every other page. Controls are visible but disabled ("view only") while `remote_commands` is
+   false.
+3. Optional: in Chrome or Edge, click **Install** in the address bar (or menu → *Install page as
+   app*) to open it in its own window from the desktop or taskbar.
+
+The cloud only has what the Pi has uploaded, and the Pi uploads once a minute, so readings there
+can be about a minute old. A new app version goes live with the next Railway deployment; reload
+the page to pick it up.
+
 ## When something goes wrong
 
 | Symptom | Likely cause | What to do |

@@ -50,7 +50,7 @@ const Profile: React.FC = () => {
           }}>{initials(user?.name)}</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sg-text)' }}>{user?.name ?? '—'}</div>
           <div style={{ fontSize: 13, color: 'var(--sg-muted)', marginTop: 3 }}>{user?.email}</div>
-          <div className="sg-row" style={{ justifyContent: 'center', gap: 8, marginTop: 8 }}>
+          <div className="sg-row" style={{ justifyContent: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <span className={`sg-pill ${user?.role === 'admin' ? 'sg-pill-ok' : 'sg-pill-info'}`}>{user?.role === 'admin' ? 'Administrator' : 'Viewer'}</span>
             <span className="sg-pill sg-pill-info">{gh.meta.name}</span>
             {session?.mode === 'demo' && <span className="sg-pill sg-pill-warn">Demo</span>}
@@ -65,8 +65,8 @@ const Profile: React.FC = () => {
             ['Permissions', user?.role === 'admin' ? 'view, control, change thresholds, manage accounts' : 'view only'],
           ].map(([k, v]) => (
             <div key={k} className="sg-row-between" style={{ padding: '7px 0', borderBottom: '1px solid var(--sg-border)', gap: 10 }}>
-              <span style={{ fontSize: 12, color: 'var(--sg-muted)' }}>{k}</span>
-              <span style={{ fontSize: 12, color: 'var(--sg-text)', textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
+              <span style={{ fontSize: 12, color: 'var(--sg-muted)', flexShrink: 0 }}>{k}</span>
+              <span style={{ fontSize: 12, color: 'var(--sg-text)', textAlign: 'right', overflowWrap: 'anywhere', minWidth: 0 }}>{v}</span>
             </div>
           ))}
         </div>

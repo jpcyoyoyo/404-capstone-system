@@ -23,11 +23,17 @@ import AppSettings  from './AppSettings';
 import More         from './More';
 import Calibration  from './Calibration';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
+import SideNav from '../components/SideNav';
 
 const MainTabs: React.FC = () => {
   const { unackedCount } = useGreenhouse();
 
+  // Phones: bottom tab bar. From 992px wide (a desktop browser) the tab bar is hidden and SideNav
+  // is shown beside the pages instead (theme/layout.css); the routes are the same either way.
   return (
+    <div className="ion-page sg-shell">
+    <SideNav />
+    <div className="sg-shell-main">
     <IonTabs>
       <IonRouterOutlet>
         <Route exact path="/tabs/dashboard"              component={Dashboard} />
@@ -78,6 +84,8 @@ const MainTabs: React.FC = () => {
         </IonTabButton>
       </IonTabBar>
     </IonTabs>
+    </div>
+    </div>
   );
 };
 

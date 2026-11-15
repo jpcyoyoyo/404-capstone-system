@@ -149,6 +149,13 @@ for 30 minutes it raises `CLOUD_UNREACHABLE` (data stays on the Pi and uploads r
 themselves). `sudo ghctl cloud status` shows the last upload. The app falls back to the cloud
 address when the Pi is not reachable; controls stay disabled there while `remote_commands` is false.
 
+**Remote monitoring in a browser.** The cloud server also serves the app at its own address
+(`https://<server>/`), so anyone with an account can monitor the greenhouse from a computer: sign
+in with the same account as on the Pi. Wider than 992px the app uses its desktop layout (side
+navigation, overview with readings, a trend chart, stage, devices, reservoir and open alerts).
+It is view-only there like the phone's cloud path. Chrome and Edge offer **Install** in the
+address bar to open it as its own desktop window.
+
 ## Growth-stage schedule
 
 Each stage has a length in days (registry defaults: seedling 14, growth 16, mature 10). In

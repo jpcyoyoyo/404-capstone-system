@@ -29,7 +29,7 @@ const LiveMonitor: React.FC = () => {
   const [zone, setZone] = useState<'all' | number>('all');
 
   const tiles = (keys: MetricKey[]) => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+    <div className="sg-tile-grid">
       {keys.map(k => {
         const m = gh.metrics[k];
         if (!m.installed) return null;
@@ -69,7 +69,7 @@ const LiveMonitor: React.FC = () => {
   return (
     <IonPage>
       <PersistentHeader />
-      <IonContent className="ion-padding">
+      <IonContent className="ion-padding sg-wide">
         <StatusBanner />
         <div className="sg-row-between" style={{ marginBottom: 12 }}>
           <div className="sg-row sg-gap-8">

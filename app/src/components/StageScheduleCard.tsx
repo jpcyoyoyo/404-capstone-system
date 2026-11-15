@@ -91,14 +91,14 @@ const StageScheduleCard: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
         </span>
       </div>
 
-      <div className="sg-row-between" style={{ alignItems: 'flex-end', marginBottom: 6 }}>
-        <div>
+      <div className="sg-row-between" style={{ alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap', gap: '4px 12px' }}>
+        <div style={{ minWidth: 0, flex: '1 1 150px' }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--sg-text)', lineHeight: 1.1 }}>{active?.name ?? s.stage_id}</div>
           <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 2 }}>
             <span style={{ color: CIRCUIT_COLOR[active?.irrigation_mode ?? ''] ?? 'var(--sg-muted)', fontWeight: 700 }}>● {active?.irrigation_mode}</span> irrigation · began {shortDate(s.started_on)}
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
+        <div style={{ textAlign: 'right', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sg-text)', fontVariantNumeric: 'tabular-nums' }}>Day {s.day}<span style={{ fontSize: 13, color: 'var(--sg-muted)', fontWeight: 600 }}> / {s.stage_days}</span></div>
           <div style={{ fontSize: 11, color: 'var(--sg-muted)' }}>crop day {s.crop_day} of {s.crop_days}</div>
         </div>
@@ -116,8 +116,10 @@ const StageScheduleCard: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
             <div key={st.id} style={{ flex: d, minWidth: 0 }}>
               <div style={{ height: 22, borderRadius: 5, background: on ? `${CIRCUIT_COLOR[st.irrigation_mode] ?? '#64748b'}40` : 'var(--sg-elevated)',
                 border: `1px solid ${on ? CIRCUIT_COLOR[st.irrigation_mode] ?? '#64748b' : 'var(--sg-border)'}`, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', fontSize: 10, fontWeight: 700, color: on ? 'var(--sg-text)' : 'var(--sg-muted)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                {st.name} · {d} d
+                justifyContent: 'center', fontSize: 10, fontWeight: 700, color: on ? 'var(--sg-text)' : 'var(--sg-muted)', whiteSpace: 'nowrap', overflow: 'hidden', padding: '0 3px' }}
+                title={`${st.name} · ${d} days`}>
+                {/* a short segment ends in … (full text in the tooltip) instead of being cut mid-letter */}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{st.name} · {d} d</span>
               </div>
             </div>
           );
