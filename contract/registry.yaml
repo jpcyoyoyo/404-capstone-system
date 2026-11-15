@@ -156,7 +156,9 @@ sensors:
   - { id: light_z2_01, type: light,        zone: 2, host: node_b, device: bh1750@0x5C }
   # Zone 0 — controller and reservoir
   - { id: co2_01,    type: co2,               zone: 0, host: pi, device: mhz19b, port: /dev/ttyAMA0, interval_s: 60, full_scale: 5000 }
-  - { id: ph_01,     type: ph,                zone: 0, host: pi, device: ads1115@0x48, channel: A0, divider: 2.0, calibration: two_point, interval_s: 300 }
+  # samples: each reading is the median of a burst of quick ADC samples (about 1 s at 0.04 s spacing),
+  # because the pH probe picks up noise (CAP A15, 15 Nov 2026).
+  - { id: ph_01,     type: ph,                zone: 0, host: pi, device: ads1115@0x48, channel: A0, divider: 2.0, calibration: two_point, interval_s: 300, samples: 25 }
   - { id: ec_01,     type: ec,                zone: 0, host: pi, device: ads1115@0x48, channel: A1, calibration: two_point, interval_s: 300 }
   - { id: wtemp_01,  type: water_temperature, zone: 0, host: pi, device: ds18b20, pin: GPIO18, interval_s: 60 }
   # CONFLICT 6: on the Pi 5, GPIO4/5 is UART2 (uart2-pi5) → /dev/ttyAMA2. Verify on the Pi.

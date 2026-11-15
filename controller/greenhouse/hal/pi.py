@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import glob
 import logging
+import statistics
 import threading
 import time
 from typing import Callable
@@ -55,6 +56,24 @@ def _ds18b20_temp(lines: list[str]) -> float | None:
         return None
     return int(lines[1].split("t=")[1]) / 1000.0
 
+
+
+def burst_median(read_one: Callable[[], float], samples: int, spacing_s: float) -> float:
+    """One reading from a burst of quick samples: their median (CAP A15, 15 Nov 2026).
+
+    The pH probe is a high-impedance source and picks up noise: single samples in pH 6.86
+    scattered over about 0.023 V (about ±0.14 pH), with short spikes of up to +0.37 V, while
+    the shorted input was steady within 0.002 V. Spread over spacing_s × samples (about 1 s by
+    default) the samples fall at different points of the mains cycle, and the median throws
+    out spikes shorter than half the burst. samples=1 reads once, as before."""
+    if samples <= 1:
+        return round(read_one(), 5)
+    vals = []
+    for i in range(samples):
+        vals.append(read_one())
+        if i < samples - 1 and spacing_s > 0:
+            time.sleep(spacing_s)
+    return round(statistics.median(vals), 5)
 
 class PiHal(Hal):
     """outputs=False is for greenhouse-sensors: on the Pi 5 a GPIO line can be held by only one
@@ -208,7 +227,8 @@ class PiHal(Hal):
         if dev == "mhz19b":
             return self._mhz19b(sd.extra["port"])
         if dev.startswith("ads1115"):
-            return self._ads1115(dev, sd.extra["channel"])
+            return self._ads1115(dev, sd.extra["channel"], int(sd.extra.get("samples", 1)),
+                                 float(sd.extra.get("sample_spacing_s", 0.04)))
         if dev == "ds18b20":
             return self._ds18b20(sd)
         if dev == "ultrasonic_uart":
@@ -241,7 +261,7 @@ class PiHal(Hal):
             return None   # checksum failure: discard, never log as zero
         return float(frame[2] * 256 + frame[3])
 
-    def _ads1115(self, dev: str, channel: str) -> float:
+    def _ads1115(self, dev: str, channel: str, samples: int = 1, spacing_s: float = 0.04) -> float:
         import board
         import busio
         import adafruit_ads1x15.ads1115 as ADS
@@ -254,10 +274,15 @@ class PiHal(Hal):
                 ads = ADS.ADS1115(busio.I2C(board.SCL, board.SDA), address=addr)
                 ads.gain = 1   # ±4.096 V
                 self._sensors[dev] = ads
-            # Input number 0-3. Library v2 named these ADS.P0..P3 and v3 ads1x15.Pin.A0..A3;
-            # both are the plain integers 0-3, so pass the number directly.
-            pin = int(channel.upper().replace("A", ""))
-            return round(AnalogIn(ads, pin).voltage, 5)
+        # Input number 0-3. Library v2 named these ADS.P0..P3 and v3 ads1x15.Pin.A0..A3;
+        # both are the plain integers 0-3, so pass the number directly.
+        pin = int(channel.upper().replace("A", ""))
+
+        def one() -> float:
+            with self._lock:
+                return AnalogIn(ads, pin).voltage
+
+        return burst_median(one, samples, spacing_s)
 
     def _ds18b20(self, sd: SensorDef) -> float | None:
         # Two probes share the 1-Wire bus; the first enumerated is used unless the registry names one.
