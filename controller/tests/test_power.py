@@ -171,3 +171,15 @@ def test_fmt_duration():
     assert fmt_duration(185) == "3 min 5 s"
     assert fmt_duration(3725) == "1 h 2 min"
     assert fmt_duration(None) == "unknown"
+
+
+def test_manual_add_and_table_race(tmp_path):
+    from greenhouse.power import add_manual, ensure_table, list_events
+    db = Database(f"sqlite:///{tmp_path}/m.db")
+    db.create_all()
+    ensure_table(db)
+    ensure_table(db)                       # a second create is quietly ignored
+    ev = add_manual(db, NOW - timedelta(minutes=6), NOW, "from the co2_01 gap")
+    assert ev.kind == "outage" and abs(ev.duration_s - 360) < 1
+    assert "recorded by hand" in ev.message and "co2_01" in ev.message
+    assert [e.id for e in list_events(db, 30)] == [ev.id]

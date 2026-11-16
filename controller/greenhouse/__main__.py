@@ -101,6 +101,21 @@ def _power_cli(args, settings, reg, db) -> None:
         if bus:
             bus.stop()
         return
+    if args.power_cmd == "add":
+        from datetime import datetime, timezone
+        from .power import add_manual
+        from .timeutil import local_tz
+
+        def _utc(v):
+            if not v:
+                return None
+            return datetime.fromisoformat(v).replace(tzinfo=local_tz()).astimezone(timezone.utc).replace(tzinfo=None)
+        went, back = _utc(args.went), _utc(args.back)
+        if went and went >= back:
+            sys.exit("--went must be before --back")
+        ev = add_manual(db, went, back, args.note)
+        print("recorded: " + ev.message)
+        return
     evs = list_events(db, args.days)
     if not evs:
         print(f"no power events in the last {args.days} days")
@@ -137,6 +152,10 @@ def main(argv: list[str] | None = None) -> None:
     pwsub = pw.add_subparsers(dest="power_cmd", required=True)
     pl = pwsub.add_parser("list", help="the logged events"); pl.add_argument("--days", type=int, default=30)
     pwsub.add_parser("scan", help="look through the journal now and record any cut not yet logged")
+    pa = pwsub.add_parser("add", help="record a cut by hand (local time), e.g. one found from a gap in the readings")
+    pa.add_argument("--went", default=None, help='when the power went, e.g. "2026-11-17 05:31:10" (omit if unknown)')
+    pa.add_argument("--back", required=True, help='when it came back, e.g. "2026-11-17 05:36:50"')
+    pa.add_argument("--note", default="", help="where the times came from")
     from . import hwcheck
     hwcheck.add_parser(sub)
     args = p.parse_args(argv)

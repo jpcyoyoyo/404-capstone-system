@@ -268,10 +268,7 @@ class PowerMonitor:
         self._uv_since: tuple[datetime, float, bool] | None = None   # (start, mono, clock trusted then)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        try:
-            PowerEvent.__table__.create(db.engine, checkfirst=True)   # in case init-db was not rerun
-        except Exception:
-            log.exception("could not create power_events")
+        ensure_table(db)   # in case init-db was not rerun
 
     # ── lifecycle ────────────────────────────────────────────────────────
     def start(self) -> None:
@@ -374,10 +371,34 @@ def _read_uptime() -> float:
     return float(Path("/proc/uptime").read_text().split()[0])
 
 
+def ensure_table(db: Database) -> None:
+    """Create power_events if missing. Two processes starting together may both try: the loser's
+    "already exists" (MySQL 1050) is expected and ignored."""
+    try:
+        PowerEvent.__table__.create(db.engine, checkfirst=True)
+    except Exception as e:
+        if "already exists" not in str(e):
+            log.exception("could not create power_events")
+
+
+def add_manual(db: Database, started_at: datetime | None, ended_at: datetime, note: str = "") -> PowerEvent:
+    """A cut recorded by hand (e.g. worked out from a gap in the readings), marked as such."""
+    ensure_table(db)
+    f = Found("outage", "", started_at, ended_at, {"start_from": "entered by hand", "end_from": "entered by hand"})
+    msg = outage_message(f).replace("and restarted by itself.", "(recorded by hand).")
+    if note:
+        msg = f"{msg} {note}"
+    ev = PowerEvent(kind="outage", boot_id=None, started_at=started_at, ended_at=ended_at, duration_s=f.duration_s,
+                    message=msg[:255], detail={"source": "manual", "note": note}, recorded_at=utcnow())
+    with db.session() as s:
+        s.add(ev)
+    return ev
+
+
 def list_events(db: Database, days: int = 30) -> list[PowerEvent]:
     since = utcnow() - timedelta(days=days)
+    ensure_table(db)
     with db.session() as s:
-        PowerEvent.__table__.create(db.engine, checkfirst=True)
         return list(s.execute(select(PowerEvent)
                               .where(func.coalesce(PowerEvent.ended_at, PowerEvent.started_at, PowerEvent.recorded_at) >= since)
                               .order_by(func.coalesce(PowerEvent.ended_at, PowerEvent.started_at, PowerEvent.recorded_at)))

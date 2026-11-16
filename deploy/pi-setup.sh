@@ -73,6 +73,16 @@ hostnamectl set-hostname greenhouse   # reachable as greenhouse.local via avahi
 say "Service account and files"
 id greenhouse >/dev/null 2>&1 || useradd --system --home "$DEST" --shell /usr/sbin/nologin greenhouse
 for g in gpio i2c spi dialout systemd-journal video; do getent group $g >/dev/null && usermod -aG $g greenhouse; done   # systemd-journal, video: power log (power.py)
+# Keep the system journal on the SD card: power cuts are worked out from it after the restart
+# (controller/greenhouse/power.py). Found 17 Nov 2026: it held only the running boot. Capped at 200 MB.
+mkdir -p /etc/systemd/journald.conf.d /var/log/journal
+cat > /etc/systemd/journald.conf.d/60-greenhouse-persistent.conf <<'EOS'
+# Written by deploy/pi-setup.sh: keep the journal across restarts (power-cut log, greenhouse/power.py).
+[Journal]
+Storage=persistent
+SystemMaxUse=200M
+EOS
+systemctl restart systemd-journald
 mkdir -p "$DEST/app" "$ETC"      # rsync creates only the last directory level
 rsync -a --delete --exclude '__pycache__' --exclude '*.db' "$REPO/controller/" "$DEST/controller/"
 rsync -a --delete "$REPO/contract/" "$DEST/contract/"
