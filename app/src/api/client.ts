@@ -1,7 +1,7 @@
 // Thin REST client for the controller API (controller/greenhouse/services/api.py).
 import type {
   Ack, AlertItem, AuditEntry, CalibrationBody, CalibrationEntry, CommandRequest, EventEntry, FertilizerReport,
-  ActivePreset, CloudState, CloudTest, GreenhouseMeta, HistoryResult, LiveSnapshot, NetworkStatus, PresetBands, PresetList,
+  ActivePreset, CloudState, CloudTest, PushConfig, PushSendResult, GreenhouseMeta, HistoryResult, LiveSnapshot, NetworkStatus, PresetBands, PresetList,
   StageSchedule, Threshold, ThresholdPreset, TokenResponse, UserItem, WaterDay, WifiNetwork,
 } from '../contract/types';
 
@@ -162,6 +162,17 @@ export class ApiClient {
   }
   wifiForget(profile: 'magso' | 'router') { return this.request<{ ok: boolean; message: string }>('DELETE', `/network/wifi/${profile}`); }
   hotspot() { return this.request<{ ok: boolean; message: string }>('POST', '/network/hotspot', undefined, true, 50_000); }
+
+  // Web Push notifications (sent by the cloud server)
+  pushConfig() { return this.request<PushConfig>('GET', '/push/config'); }
+  pushSubscribe(subscription: PushSubscriptionJSON, level: 'all' | 'urgent', label: string) {
+    return this.request<{ registered: boolean; level: 'all' | 'urgent' }>('POST', '/push/subscription', { subscription, level, label });
+  }
+  pushCheck(endpoint: string) {
+    return this.request<{ registered: boolean; level: 'all' | 'urgent' | null }>('POST', '/push/subscription/check', { endpoint });
+  }
+  pushUnsubscribe(endpoint: string) { return this.request<{ ok: boolean; removed: boolean }>('POST', '/push/unsubscribe', { endpoint }); }
+  pushTest() { return this.request<PushSendResult>('POST', '/push/test', undefined, true, 25_000); }
 
   simFault(f: { kind: string; sensor_id?: string; node_id?: string; value?: number; attr?: string }) {
     return this.request<{ ok: boolean }>('POST', '/sim/fault', f);

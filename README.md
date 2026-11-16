@@ -156,6 +156,15 @@ navigation, overview with readings, a trend chart, stage, devices, reservoir and
 It is view-only there like the phone's cloud path. Chrome and Edge offer **Install** in the
 address bar to open it as its own desktop window.
 
+**Phone notifications (Web Push).** The cloud server sends a notification for each new alert
+(a minute after the greenhouse raises it, with the Pi's upload) and when the controller stops
+reporting for 5 minutes (power or internet at the greenhouse). They reach a phone even with the
+app closed, through the web app opened from the cloud address (installed on the home screen);
+the APK and the Pi's http address cannot receive them. Turn them on in App Settings →
+Notifications (all alerts or urgent only, with a test button). The server needs one key:
+`sudo ghctl push keys` makes it; set `GH_VAPID_PRIVATE_KEY` on the cloud server (steps in
+`deploy/cloud/RAILWAY.md`). Code: `controller/greenhouse/push.py`, `app/src/components/push.ts`.
+
 ## Growth-stage schedule
 
 Each stage has a length in days (registry defaults: seedling 14, growth 16, mature 10). In

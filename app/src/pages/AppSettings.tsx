@@ -8,51 +8,14 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useHistory } from 'react-router-dom';
 import ConnectionEditor from '../components/ConnectionEditor';
+import PushSettings from '../components/PushSettings';
+import { SettingRow, ChipGroup } from '../components/SettingRow';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
 
 const accentColors = ACCENT_COLORS;
 
 const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="sg-section-title" style={{ marginTop: 4, marginBottom: 10 }}>{children}</div>
-);
-
-/** One setting: label (and hint) on the left, its control on the right. A `wide` control (a row of
- *  choices) moves under its label when the card is narrow (theme/layout.css), so a phone with large
- *  system text never pushes a choice off the screen. */
-const SettingRow: React.FC<{ label: string; sub?: string; wide?: boolean; children: React.ReactNode }> = ({ label, sub, wide, children }) => (
-  <div className="sg-setting">
-    <div className={`sg-setting-row${wide ? ' wide' : ''}`}>
-      <div className="sg-setting-text">
-        <div style={{ fontSize: 14, color: 'var(--sg-text)', fontWeight: 500 }}>{label}</div>
-        {sub && <div style={{ fontSize: 11, color: 'var(--sg-muted)', marginTop: 2 }}>{sub}</div>}
-      </div>
-      <div className="sg-setting-ctl">{children}</div>
-    </div>
-  </div>
-);
-
-const ChipGroup = <T extends string>({
-  options, value, onChange, colors,
-}: {
-  options: T[];
-  value: T;
-  onChange: (v: T) => void;
-  colors?: Record<T, string>;
-}) => (
-  <div className="sg-chip-group" role="radiogroup">
-    {options.map(o => {
-      const active = value === o;
-      const accent = colors ? colors[o] : '#22c55e';
-      return (
-        <button key={o} type="button" role="radio" aria-checked={active} onClick={() => onChange(o)} style={{
-          background: active ? `${accent}20` : 'var(--sg-elevated)',
-          border: `1px solid ${active ? accent + '60' : 'var(--sg-border)'}`,
-          borderRadius: 20, padding: '4px 11px', fontSize: 12, cursor: 'pointer',
-          color: active ? accent : 'var(--sg-muted)', fontWeight: active ? 600 : 400, textTransform: 'capitalize',
-        }}>{o}</button>
-      );
-    })}
-  </div>
 );
 
 const AppSettings: React.FC = () => {
@@ -217,11 +180,7 @@ const AppSettings: React.FC = () => {
         {/* ── NOTIFICATIONS ── */}
         <div className="sg-card">
           <SectionTitle>Notifications</SectionTitle>
-          <div style={{ fontSize: 12, color: 'var(--sg-muted)', lineHeight: 1.5 }}>
-            {gh.meta.capabilities.push
-              ? 'Push notifications are enabled for this greenhouse.'
-              : 'During the study period alerts appear in the app (the badge on More and the Alerts page) and on the greenhouse screen. Phone push notifications are planned for a later version.'}
-          </div>
+          <PushSettings />
         </div>
 
         {/* ── DATA ── */}

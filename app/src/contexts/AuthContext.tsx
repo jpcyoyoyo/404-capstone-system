@@ -7,6 +7,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { ApiClient, ApiError } from '../api/client';
 import type { MqttInfo, SessionUser, TokenResponse } from '../contract/types';
 import { useConnection } from './ConnectionContext';
+import { disablePush } from '../components/push';
 
 export type { SessionUser };
 
@@ -145,7 +146,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = useCallback(() => {
     const s = sessionRef.current;
-    if (s?.mode === 'live' && api) api.logout().catch(() => { /* offline: the token simply expires */ });
+    if (s?.mode === 'live' && api) {
+      // This device stops getting notifications first (components/push.ts), with the token still valid.
+      const token = s.token;
+      const c = new ApiClient(api.base, { access: () => token, refresh: async () => null });
+      disablePush(c).finally(() => c.logout().catch(() => { /* offline: the token simply expires */ }));
+    }
     setSession(null);
   }, [api]);
 

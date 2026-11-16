@@ -40,6 +40,12 @@ class Settings:
     cloud_url: str | None = field(default_factory=lambda: _env("GH_CLOUD_URL"))
     sync_token: str | None = field(default_factory=lambda: _env("GH_SYNC_TOKEN"))
     sync_interval_s: float = field(default_factory=lambda: float(_env("GH_SYNC_INTERVAL_S", "60")))
+    # Web Push from the cloud server (greenhouse/push.py). The private key comes from
+    # `greenhouse push keys`; the subject is a contact the push services can reach (mailto: or https:).
+    # On Railway the subject defaults to the service's own https address.
+    vapid_private_key: str | None = field(default_factory=lambda: _env("GH_VAPID_PRIVATE_KEY"))
+    vapid_subject: str | None = field(default_factory=lambda: _env("GH_VAPID_SUBJECT")
+                                      or (f"https://{d}" if (d := _env("RAILWAY_PUBLIC_DOMAIN")) else None))
     # Hold readings until the Pi's clock is trusted (greenhouse.clock). Only used with GH_HAL=pi.
     clock_check: bool = field(default_factory=lambda: _env("GH_CLOCK_CHECK", "1") != "0")
     # Dev-only fault-injection endpoints (/sim/*). Never enable on the real Pi.

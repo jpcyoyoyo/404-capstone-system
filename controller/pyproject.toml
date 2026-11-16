@@ -28,6 +28,8 @@ pi = [
   "adafruit-circuitpython-ads1x15>=2.2",
   "adafruit-circuitpython-pca9685>=3.4",
 ]
+# The cloud server sends Web Push notifications (greenhouse/push.py); the Pi does not need it.
+cloud = ["pywebpush>=2.0,<3"]
 dev = ["pytest>=8", "httpx>=0.27", "jsonschema>=4"]
 
 [project.scripts]

@@ -45,6 +45,12 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
   Keep `REASON_TEXT` in step with `controller/greenhouse/messages.py`. A control that a safety lock
   refuses is disabled, with the reason under it.
 - Anything capability-gated (energy, push) reads `meta.capabilities`, never a hard-coded flag.
+- Phone notifications are Web Push from the cloud server (`controller/greenhouse/push.py`):
+  `components/push.ts` (where it can work, subscribe/unsubscribe), `components/PushSettings.tsx`
+  (App Settings → Notifications), `public/sw.js` (shows them; does no caching) and
+  `components/PushNavigator.tsx` (a tap opens the page). Only a browser on the https cloud address
+  can take them: the APK and the Pi's http address say where to turn them on instead. Signing out
+  turns them off on that device. Settings rows come from `components/SettingRow.tsx`.
 - New device or sensor: add it to `contract/registry.yaml`, regenerate, and the pages pick it up
   from `meta.actuators` / `meta.sensors`.
 - Styling: inline styles on `var(--sg-*)` tokens plus the `sg-*` classes in `theme/global.css`.

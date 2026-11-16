@@ -18,7 +18,7 @@ FROM python:3.11-slim
 WORKDIR /opt/greenhouse
 COPY contract/ contract/
 COPY controller/ controller/
-RUN pip install --no-cache-dir ./controller
+RUN pip install --no-cache-dir "./controller[cloud]"
 COPY --from=web /src/app/dist/ app/dist/
 ENV GH_ROLE=cloud \
     GH_REGISTRY=/opt/greenhouse/contract/registry.yaml \

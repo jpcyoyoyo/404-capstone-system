@@ -34,6 +34,7 @@ from ..registry import PARAMS, Registry
 from .. import cloud as cloudmod
 from .. import netctl
 from .. import presets as presetmod
+from .. import push as pushmod
 from .. import stages as stagemod
 from ..seed import DEFAULT_STAGE_KEY, create_user
 from ..timeutil import iso, parse_iso, utcnow
@@ -213,6 +214,16 @@ class SyncIn(BaseModel):
     rows: list[dict[str, Any]]
 
 
+class PushSubIn(BaseModel):
+    subscription: dict[str, Any]
+    level: Literal["all", "urgent"] = "all"
+    label: str = Field(default="", max_length=200)
+
+
+class PushEndpointIn(BaseModel):
+    endpoint: str = Field(max_length=2000)
+
+
 class FaultIn(BaseModel):
     kind: str
     sensor_id: str | None = None
@@ -222,12 +233,16 @@ class FaultIn(BaseModel):
 
 
 # ── app factory ─────────────────────────────────────────────────────────────
-def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, network: netctl.Network | None = None) -> FastAPI:
+def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, network: netctl.Network | None = None,
+               push: pushmod.PushService | None = None) -> FastAPI:
     topics = Topics(reg.greenhouse_id)
     net = network or netctl.make_network(settings.hal)
     cache = LiveCache(bus, topics)
     waiter = AckWaiter(bus, topics)
     is_cloud = settings.role == "cloud"
+    if push is None:   # tests pass their own, with a stand-in for the push services and no threads
+        push = pushmod.PushService(db, settings, reg)
+        push.start()
 
     app = FastAPI(title="Smart Greenhouse API", version=__version__,
                   description="Controller API for the IoT-Enabled Smart Greenhouse (404 Brains Not Found).")
@@ -376,7 +391,8 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
                            "description": g.description} for g in stages]
         return {
             "id": reg.greenhouse_id, "name": reg.greenhouse_name, "timezone": reg.timezone, "role": settings.role,
-            "capabilities": {**reg.capabilities, "remote_commands": reg.capabilities.get("remote_commands", False) if is_cloud else True},
+            "capabilities": {**reg.capabilities, "remote_commands": reg.capabilities.get("remote_commands", False) if is_cloud else True,
+                             "push": push.available},
             "network_mode": controller_status().get("network_mode", settings.network_mode),
             "active_stage": db.kv_get(DEFAULT_STAGE_KEY), "active_preset": presetmod.active_info(db), "stages": stage_list,
             "stage_schedule": stagemod.info(db, reg),
@@ -942,6 +958,57 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         audit(user["email"], "alert_acknowledged", f"alert:{alert_id}", {"code": out["code"]})
         return out
 
+    # ── Web Push notifications (greenhouse/push.py; sent by the cloud server) ──
+    def person(user: dict) -> int:
+        if user.get("role") == "kiosk":
+            raise HTTPException(403, "the greenhouse display does not take notifications")
+        return int(user["sub"])
+
+    @app.get("/push/config", tags=["push"])
+    def push_config(user: dict = Depends(reader)):
+        """Whether this server sends notifications, and the public key browsers subscribe with."""
+        uid = person(user)
+        return {"available": push.available, "public_key": push.public_key, "reason": push.reason or None,
+                "devices": push.device_count(uid) if push.available else 0}
+
+    def need_push():
+        if not push.available:
+            raise HTTPException(409, push.reason)
+
+    @app.post("/push/subscription", tags=["push"])
+    def push_subscribe(body: PushSubIn, user: dict = Depends(reader)):
+        """Register (or update) this browser for notifications at the given level."""
+        uid = person(user)
+        need_push()
+        try:
+            out = push.subscribe(uid, body.subscription, body.level, body.label)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        # Logged, not audited: audit_log ids come from the Pi, so the cloud never writes its own rows.
+        log.info("push: %s turned on notifications (%s) on %s", user["email"], body.level, body.label[:60] or "a browser")
+        return out
+
+    @app.post("/push/subscription/check", tags=["push"])
+    def push_check(body: PushEndpointIn, user: dict = Depends(reader)):
+        return push.check(person(user), body.endpoint)
+
+    @app.post("/push/unsubscribe", tags=["push"])
+    def push_unsubscribe(body: PushEndpointIn, user: dict = Depends(reader)):
+        person(user)
+        removed = push.unsubscribe(body.endpoint)
+        if removed:
+            log.info("push: %s turned off notifications on a browser", user["email"])
+        return {"ok": True, "removed": removed}
+
+    @app.post("/push/test", tags=["push"])
+    def push_test(user: dict = Depends(reader)):
+        """Send a test notification to this account's devices now."""
+        uid = person(user)
+        need_push()
+        return push.deliver(pushmod.Message(
+            title="Test notification", body="Notifications from the MAgSO greenhouse are working on this device.",
+            severity="low", tag="push-test", url="/tabs/app-settings", user_id=uid))
+
     # ── power cuts and supply dips (greenhouse/power.py) ────────────────
     @app.get("/power-events", tags=["logs"])
     def power_events(user: dict = Depends(reader), days: int = Query(default=30, ge=1, le=365)):
@@ -1134,10 +1201,12 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
             raise HTTPException(404, "only the cloud replica accepts sync")
         if not settings.sync_token or authorization != f"Bearer {settings.sync_token}":
             raise HTTPException(401, "bad sync token")
+        fresh = push.fresh_alerts(body.rows) if body.table == "alerts" else []   # before they are stored
         try:
             n = syncmod.ingest(db, body.table, body.rows)
         except ValueError as e:
             raise HTTPException(422, str(e))
+        push.alerts(fresh)
         if body.table == "sensor_readings" and body.rows:
             for r in body.rows[-200:]:
                 sid = r.get("sensor_id")
@@ -1175,4 +1244,5 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         return JSONResponse({"detail": "internal error"}, status_code=500)
 
     app.state.cache = cache
+    app.state.push = push
     return app

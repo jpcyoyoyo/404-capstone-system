@@ -3,6 +3,7 @@
   init-db [--sim]          create tables, load the registry, (--sim: seed simulator calibrations)
   create-user EMAIL        add or reset an account (prompts for the password)
   api | sensors | control | sync | sim-nodes    run one service (systemd runs each separately)
+  push keys                make a key pair for Web Push (cloud server: GH_VAPID_PRIVATE_KEY)
   dev                      everything in one process against the simulator — no broker, no hardware
   schema-sql               print the MySQL DDL
   hw …                     bench and commissioning checks (see greenhouse/hwcheck.py)
@@ -152,6 +153,9 @@ def main(argv: list[str] | None = None) -> None:
     cs.add_argument("--force", action="store_true", help="save even if the test fails")
     csub.add_parser("test")
     sub.add_parser("stage")
+    pu = sub.add_parser("push", help="Web Push notifications from the cloud server")
+    pusub = pu.add_subparsers(dest="push_cmd", required=True)
+    pusub.add_parser("keys", help="make a new key pair; the private key goes in GH_VAPID_PRIVATE_KEY on the cloud server")
     pw = sub.add_parser("power", help="power cuts, restarts and supply dips (logged automatically)")
     pwsub = pw.add_subparsers(dest="power_cmd", required=True)
     pl = pwsub.add_parser("list", help="the logged events"); pl.add_argument("--days", type=int, default=30)
@@ -178,6 +182,15 @@ def main(argv: list[str] | None = None) -> None:
             for ix in sorted(t.indexes, key=lambda i: i.name or ""):
                 print(str(CreateIndex(ix).compile(eng)).strip() + ";")
             print()
+        return
+
+    if args.cmd == "push":   # needs no database: makes a key pair for the cloud server (greenhouse/push.py)
+        from .push import generate_keys
+        private, public = generate_keys()
+        print("New key pair for Web Push notifications. The private key is a secret: put it only in the cloud\n"
+              "server's settings (Railway: Variables; VPS: cloud.env) and do not save it anywhere else.\n")
+        print(f"GH_VAPID_PRIVATE_KEY={private}\n")
+        print(f"Public key (the server works it out and gives it to browsers; nothing to set): {public}")
         return
 
     reg, db = _setup(settings)

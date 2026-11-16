@@ -158,6 +158,10 @@ export interface CloudState {
 
 export interface CloudTest { ok: boolean; steps: { step: string; ok: boolean; detail: string }[] }
 
+/** Web Push from the cloud server (GET /push/config; controller/greenhouse/push.py). */
+export interface PushConfig { available: boolean; public_key: string | null; reason: string | null; devices: number }
+export interface PushSendResult { sent: number; removed: number; failed: number }
+
 /** GET /network — how the controller is connected (greenhouse display and app). */
 export interface NetworkStatus {
   mode: string;

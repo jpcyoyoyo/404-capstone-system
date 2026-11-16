@@ -10,6 +10,7 @@ import { ConnectionProvider } from './contexts/ConnectionContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { GreenhouseProvider } from './providers/GreenhouseProvider';
 import PrivateRoute from './components/PrivateRoute';
+import PushNavigator from './components/PushNavigator';
 
 /* Core CSS required for Ionic components to work properly */
 import '@ionic/react/css/core.css';
@@ -47,6 +48,7 @@ const App: React.FC = () => (
   <GreenhouseProvider>
   <IonApp>
     <IonReactRouter>
+      <PushNavigator />
       <IonRouterOutlet>
         <Route exact path="/login"       component={Login} />
         <Route exact path="/quick-setup" component={QuickSetup} />

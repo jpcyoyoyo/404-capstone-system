@@ -87,6 +87,49 @@ The cloud only has what the Pi has uploaded, and the Pi uploads once a minute, s
 can be about a minute old. A new app version goes live with the next Railway deployment; reload
 the page to pick it up.
 
+## Phone notifications (Web Push, added 17 Nov 2026)
+
+The cloud server can send phone notifications: one for each new alert (about a minute after the
+greenhouse raises it, when the Pi's upload arrives) and one when the controller has not reported
+for 5 minutes, then again when it is back. They arrive with the app closed or the screen off. They
+work in the web app opened from the Railway address; the Android APK and the Pi's own http address
+cannot receive them (App Settings says so and gives the address to use).
+
+**On the server (once):**
+
+1. On the Pi, after `git pull` and `sudo bash ./deploy/pi-setup.sh`:
+
+   ```
+   sudo ghctl push keys
+   ```
+
+   It prints a new key pair. Copy only the `GH_VAPID_PRIVATE_KEY=…` line. It is a secret: do not
+   save it in a file, a chat, a document or a photo.
+2. Railway → API service → **Variables → New Variable**: name `GH_VAPID_PRIVATE_KEY`, value the
+   key. Save; Railway redeploys. `GH_VAPID_SUBJECT` (a contact for the push services) is
+   optional on Railway: it defaults to the service's own https address.
+3. Keep the same key for good. Every phone's subscription is tied to it; a new key means every
+   phone turns notifications on again.
+
+**On each phone:**
+
+* **Android (Chrome):** open the Railway address, menu → **Install app** (or **Add to Home
+  screen**), open it from the home screen, sign in, then **More → App Settings → Notifications**:
+  turn on **Notifications on this device**, allow when Chrome asks, choose **All alerts** or
+  **Urgent only**, and tap **Send a test**.
+* **iPhone or iPad (iOS 16.4 or later):** in Safari, **Share → Add to Home Screen**, open it from
+  the Home Screen, sign in, then the same steps.
+* A computer works the same way in Chrome or Edge.
+
+Signing out turns notifications off on that device. If the test does not arrive within a minute
+on Android, check that notifications for Chrome (or the installed app) are allowed in the phone's
+settings and that battery saving is not restricting Chrome.
+
+**Moving to another server (for example Hostinger):** put the same `GH_VAPID_PRIVATE_KEY` in the
+new server's `cloud.env`, with `GH_VAPID_SUBJECT` set to its https address. A subscription
+belongs to the address it was made on, so each phone opens the new address, installs it and turns
+notifications on again there.
+
 ## When something goes wrong
 
 | Symptom | Likely cause | What to do |
@@ -98,6 +141,10 @@ the page to pick it up.
 | Sign-in on the cloud fails with a valid Pi account | `GH_JWT_SECRET` differs from the Pi's, or the first sync has not run | Copy the secret again (step 4); wait for `cloud status` to show an upload |
 | `cloud status` shows **NOT REACHABLE** with *The read operation timed out* soon after setup, while `/health` answers | The first upload carries the Pi's whole backlog, and before 14 Nov 2026 the server saved it one row at a time (4,000 database calls per 2,000 readings), which took longer than the Pi waits | Fixed 14 Nov 2026 (rows saved in bulk, the Pi waits up to 120 s, accounts and settings go first). Push, wait for Railway to redeploy, then on the Pi `git pull` and `sudo bash ./deploy/pi-setup.sh`. Uploads carry on from where they stopped |
 | Uploads work, but `/health` on the cloud always shows `"controller_online": false` and the app on the cloud path says *The control service is not reporting* | Before 14 Nov 2026 the cloud only learnt the controller's state over MQTT, which it does not have, so it always said offline (and showed readings as stale) | Fixed 14 Nov 2026 (the heartbeat is uploaded with the settings; the cloud allows two sync intervals of delay). Push, wait for Railway to redeploy, then on the Pi `git pull` and `sudo bash ./deploy/pi-setup.sh`. If it still says false, check `systemctl status greenhouse-control` on the Pi |
+| App Settings → Notifications says the server has no notification key | `GH_VAPID_PRIVATE_KEY` not set on the API service | Steps under *Phone notifications* above |
+| It says the notification key is not valid | The value was cut short or has extra characters | Paste the `GH_VAPID_PRIVATE_KEY` line again exactly, or make a new key (every phone then turns notifications on again) |
+| The switch is greyed out with *blocked for this site* | Notifications were refused when the browser asked | Allow them in the browser's site settings (Android: long-press the installed app → App info → Notifications), then turn the switch on |
+| Test says *No device took the test* | The phone unsubscribed or cleared its data | Turn the switch off and on again on that phone |
 | Controller raises `CLOUD_UNREACHABLE` | No upload for 30 minutes: Pi offline, or the Railway service stopped (check credit) | Data stays on the Pi and uploads resume by themselves once the server is back |
 
 ## Stopping it after the demo

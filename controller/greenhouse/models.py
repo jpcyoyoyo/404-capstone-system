@@ -225,6 +225,26 @@ class PowerEvent(Base):
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class PushSubscription(Base):
+    """A browser that asked for Web Push notifications (greenhouse/push.py, added 17 Nov 2026).
+
+    Kept only on the cloud server, which sends the notifications; never replicated. The endpoint is
+    the browser's push-service address; it is unique per browser profile, so it is stored by hash."""
+    __tablename__ = "push_subscriptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    endpoint_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    endpoint: Mapped[str] = mapped_column(Text)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    level: Mapped[str] = mapped_column(String(10), default="all")        # all | urgent
+    label: Mapped[str] = mapped_column(String(120), default="")          # e.g. "Chrome on Android"
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
 class KeyValue(Base):
     __tablename__ = "kv"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
