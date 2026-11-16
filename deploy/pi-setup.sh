@@ -72,7 +72,7 @@ hostnamectl set-hostname greenhouse   # reachable as greenhouse.local via avahi
 
 say "Service account and files"
 id greenhouse >/dev/null 2>&1 || useradd --system --home "$DEST" --shell /usr/sbin/nologin greenhouse
-for g in gpio i2c spi dialout; do getent group $g >/dev/null && usermod -aG $g greenhouse; done
+for g in gpio i2c spi dialout systemd-journal video; do getent group $g >/dev/null && usermod -aG $g greenhouse; done   # systemd-journal, video: power log (power.py)
 mkdir -p "$DEST/app" "$ETC"      # rsync creates only the last directory level
 rsync -a --delete --exclude '__pycache__' --exclude '*.db' "$REPO/controller/" "$DEST/controller/"
 rsync -a --delete "$REPO/contract/" "$DEST/contract/"
@@ -167,9 +167,12 @@ install -o root -g root -m 440 "$REPO/deploy/network/greenhouse-netctl.sudoers" 
 visudo -cf /etc/sudoers.d/greenhouse-netctl >/dev/null || { rm -f /etc/sudoers.d/greenhouse-netctl; echo "sudoers rule rejected"; }
 systemctl daemon-reload
 systemctl enable --now greenhouse-sensors greenhouse-control greenhouse-api
+# enable --now leaves a running service on the old code: restart so the new code and unit settings load
+systemctl restart greenhouse-sensors greenhouse-control greenhouse-api
 if [[ $SIM -eq 1 ]]; then systemctl enable --now greenhouse-simnodes; else systemctl disable --now greenhouse-simnodes 2>/dev/null || true; fi
 # The cloud server is required: sync always runs and raises an alert until a server is set up.
 systemctl enable --now greenhouse-sync
+systemctl restart greenhouse-sync
 
 say "Cloud server (required)"
 if sudo -E -u greenhouse "$DEST/venv/bin/greenhouse" cloud status | grep -q "NOT SET UP"; then

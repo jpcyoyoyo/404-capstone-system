@@ -160,6 +160,8 @@ export const ALERT_TITLE: Record<string, string> = {
   HARVEST_DUE: 'Harvest due',
   CLOUD_NOT_CONFIGURED: 'Cloud server not set up',
   CLOUD_UNREACHABLE: 'Cloud server not reachable',
+  POWER_OUTAGE: 'Power cut',
+  UNDERVOLTAGE: 'Supply voltage dipped',
 };
 
 export function alertTitle(code: string): string {
@@ -205,4 +207,9 @@ export const SUGGESTED_ACTIONS: Record<string, string[]> = {
     'Or on the controller: sudo ghctl cloud setup https://<server>'],
   CLOUD_UNREACHABLE: ['Check the controller has internet (display: press N)', 'Check the cloud server is running',
     'Nothing is lost: uploads resume by themselves when the connection returns'],
+  POWER_OUTAGE: ['Nothing to do if everything is back: the controller restarts and resumes by itself',
+    'Readings and automatic control stopped while the power was off; check the plants and the reservoir',
+    'Full list of power cuts: sudo ghctl power list'],
+  UNDERVOLTAGE: ['The supply dipped but the controller kept running', 'If it happens often, check the 5 V supply and its cable, or add a UPS',
+    'Full list: sudo ghctl power list'],
 };

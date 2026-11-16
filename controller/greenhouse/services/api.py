@@ -942,6 +942,13 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         audit(user["email"], "alert_acknowledged", f"alert:{alert_id}", {"code": out["code"]})
         return out
 
+    # ── power cuts and supply dips (greenhouse/power.py) ────────────────
+    @app.get("/power-events", tags=["logs"])
+    def power_events(user: dict = Depends(reader), days: int = Query(default=30, ge=1, le=365)):
+        from ..power import list_events
+        return [{"id": e.id, "kind": e.kind, "started_at": iso(e.started_at), "ended_at": iso(e.ended_at),
+                 "duration_s": e.duration_s, "message": e.message, "detail": e.detail} for e in list_events(db, days)]
+
     # ── logs, reports ───────────────────────────────────────────────────
     @app.get("/logs", tags=["logs"])
     def logs(user: dict = Depends(reader), kind: Literal["audit", "events"] = "audit",

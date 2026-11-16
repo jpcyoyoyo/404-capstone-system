@@ -8,7 +8,8 @@ Requires=mosquitto.service
 Type=simple
 User=greenhouse
 Group=greenhouse
-SupplementaryGroups=gpio i2c dialout
+SupplementaryGroups=gpio i2c dialout systemd-journal video
+# systemd-journal: power cuts are read from the journal; video: vcgencmd get_throttled (greenhouse/power.py)
 EnvironmentFile=/etc/greenhouse/greenhouse.env
 WorkingDirectory=/opt/greenhouse/controller
 ExecStart=/opt/greenhouse/venv/bin/greenhouse sensors

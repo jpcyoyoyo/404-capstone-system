@@ -79,6 +79,38 @@ def _bus(settings, name, will=None):
     return b
 
 
+def _power_cli(args, settings, reg, db) -> None:
+    from .power import PowerMonitor, fmt_duration, list_events
+    from .timeutil import local_time_of
+    if args.power_cmd == "scan":
+        from .bus import Topics
+        from .clock import AlwaysTrusted, ClockCheck
+        from .services.common import AlertManager
+        clock = ClockCheck(settings.clock_check) if settings.hal == "pi" else AlwaysTrusted()
+        if not clock.trusted():
+            sys.exit(f"the clock is not trusted yet ({clock.reason}); try again once it is")
+        try:
+            bus = _bus(settings, "power-scan")
+        except Exception:
+            bus = None
+        alerts = AlertManager(db, bus, Topics(reg.greenhouse_id), owner="power") if bus else None
+        new = PowerMonitor(db, alerts, clock, undervolt=False).scan()
+        print(f"{len(new)} new event(s) recorded" + (":" if new else "; nothing new in the journal"))
+        for ev in new:
+            print("  " + ev.message)
+        if bus:
+            bus.stop()
+        return
+    evs = list_events(db, args.days)
+    if not evs:
+        print(f"no power events in the last {args.days} days")
+        return
+    fmt = lambda d: local_time_of(d).strftime("%d %b %H:%M:%S") if d else "?"
+    print(f"{'kind':<13} {'power went':<16} {'back':<16} {'off for':<12} note")
+    for ev in evs:
+        print(f"{ev.kind:<13} {fmt(ev.started_at):<16} {fmt(ev.ended_at):<16} {fmt_duration(ev.duration_s):<12} {ev.message}")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="greenhouse", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -101,6 +133,10 @@ def main(argv: list[str] | None = None) -> None:
     cs.add_argument("--force", action="store_true", help="save even if the test fails")
     csub.add_parser("test")
     sub.add_parser("stage")
+    pw = sub.add_parser("power", help="power cuts, restarts and supply dips (logged automatically)")
+    pwsub = pw.add_subparsers(dest="power_cmd", required=True)
+    pl = pwsub.add_parser("list", help="the logged events"); pl.add_argument("--days", type=int, default=30)
+    pwsub.add_parser("scan", help="look through the journal now and record any cut not yet logged")
     from . import hwcheck
     hwcheck.add_parser(sub)
     args = p.parse_args(argv)
@@ -129,6 +165,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.cmd == "cloud":
         _cloud_cli(args, settings, db)
+        return
+
+    if args.cmd == "power":
+        _power_cli(args, settings, reg, db)
         return
 
     if args.cmd == "stage":
@@ -183,7 +223,15 @@ def main(argv: list[str] | None = None) -> None:
         svc = SensorService(reg, db, bus, make_hal(settings.hal, reg, outputs=False),  # outputs belong to greenhouse-control
                             clock=clock)
         svc.start()
-        _wait_forever([svc.stop, bus.stop])
+        stoppers = [svc.stop, bus.stop]
+        if settings.hal == "pi":   # power cuts are read from the Pi's journal (greenhouse/power.py)
+            from .bus import Topics
+            from .power import PowerMonitor
+            from .services.common import AlertManager
+            power = PowerMonitor(db, AlertManager(db, bus, Topics(reg.greenhouse_id), owner="power"), clock)
+            power.start()
+            stoppers.insert(0, power.stop)
+        _wait_forever(stoppers)
         return
 
     if args.cmd == "control":

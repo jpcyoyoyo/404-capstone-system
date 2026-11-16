@@ -211,6 +211,20 @@ class FertigationDose(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class PowerEvent(Base):
+    """Power cuts, planned restarts and supply dips (greenhouse/power.py, added 17 Nov 2026)."""
+    __tablename__ = "power_events"
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16))            # outage | restart | undervoltage
+    boot_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)  # the boot after a cut or restart
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)   # power went (last moment surely on)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)  # power back (Pi started)
+    duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    message: Mapped[str] = mapped_column(String(255), default="")
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class KeyValue(Base):
     __tablename__ = "kv"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
