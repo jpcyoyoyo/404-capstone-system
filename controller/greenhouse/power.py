@@ -18,10 +18,23 @@ Each cut is therefore worked out afterwards, from the system journal (kept on th
 Brief dips that do not restart the Pi are caught by the firmware's under-voltage flag
 (hwmon "rpi_volt", in0_lcrit_alarm; else `vcgencmd get_throttled` bit 0), polled every 2 s.
 
+Fallback from the readings (added 17 Nov 2026, after two brownouts that morning were missed because
+the journal of the runs before them was not kept): 5 minutes after the journal scan, the last
+24 hours of readings are searched for gaps where no sensor stored anything for over 40 s and the
+sensors service then started again (co2_01 marked WARMING, which it is for 3 minutes after every
+start). Each such gap not already in the log is classed with the journal's boots:
+* a Pi start inside the gap, for the oldest boot the journal keeps: "outage", a probable cut (the
+  run before has no journal, so a planned shutdown cannot be ruled out), with an alert;
+* inside a run the journal shows: the Pi kept running and only the service was restarted (by a
+  person or pi-setup.sh); nothing is recorded;
+* before any boot the journal keeps: "unexplained", a power cut or a planned restart, no alert.
+
 Each event is a row in power_events (one per boot for cuts and restarts, so a rescan never adds
 it twice). A cut or a dip ending in the last 48 hours also raises an alert (POWER_OUTAGE,
 UNDERVOLTAGE). A planned restart is recorded without an alert. `greenhouse power list` and
-GET /power-events show the history; `greenhouse power scan` reruns the scan by hand.
+GET /power-events show the history; `greenhouse power scan` reruns both scans by hand.
+A note given with `power add` is kept in detail["note"], not in the message, so the message is
+never cut short.
 """
 from __future__ import annotations
 
@@ -51,6 +64,19 @@ CLEAN_MARKERS = ("Journal stopped", "Reached target System Reboot", "Reached tar
                  "systemd-shutdown")
 SYNC_MARKERS = ("Initial clock synchronization", "Contacted time server", "Synchronized to time server")
 UNDERVOLT_MARKERS = ("Undervoltage detected", "under-voltage", "Under-voltage")
+GAP_S = 40                             # zone nodes report every 30 s: 40 s with no reading at all means the service was down
+GAP_WINDOW = timedelta(hours=24)       # how far back the readings are searched
+GAP_SCAN_DELAY_S = 300                 # after the journal scan, so the readings after a restart are stored
+WARMING_WITHIN = timedelta(minutes=4)  # co2_01 is WARMING for 3 min after the sensors service starts
+OVERLAP_SLACK = timedelta(minutes=2)
+
+
+def clip(msg: str, n: int = 255) -> str:
+    """Fit the message column without cutting a word in half."""
+    if len(msg) <= n:
+        return msg
+    cut = msg[:n - 1]
+    return (cut.rsplit(" ", 1)[0] if " " in cut else cut) + "…"
 
 
 @dataclass
@@ -206,8 +232,46 @@ def find_events(boots: list[Boot], last_reading_before: Callable[[datetime], dat
     return found
 
 
+def reading_gaps(db: Database, since: datetime, min_gap_s: float = GAP_S) -> list[tuple[datetime, datetime]]:
+    """(last reading before, first reading after) for every stretch with no reading from any sensor."""
+    with db.session() as s:
+        times = s.execute(select(SensorReading.recorded_at).where(SensorReading.recorded_at >= since)
+                          .distinct().order_by(SensorReading.recorded_at)).scalars().all()
+    return [(a, b) for a, b in zip(times, times[1:]) if (b - a).total_seconds() > min_gap_s]
+
+
+def classify_gap(a: datetime, b: datetime, boots: list[Boot], current_start: datetime | None) -> Found | None:
+    """What a gap in the readings (followed by a sensors-service start) was, judged by the journal's boots."""
+    starts = [(bt, current_start if (bt.current and current_start) else bt.start_rt, i == 0)
+              for i, bt in enumerate(boots)]
+    if not boots and current_start is not None:
+        starts = [(Boot("", 0, current=True), current_start, True)]
+    for bt, st, oldest in starts:
+        if st is not None and a <= st <= b:
+            if not oldest:
+                return None        # the journal has the run before: find_events covers this restart
+            return Found("outage", bt.boot_id, a, st,
+                         {"source": "readings", "start_from": "last stored reading",
+                          "end_from": "Pi start (now minus uptime)" if bt.current else "Pi start (journal)",
+                          "journal_before": "not kept"})
+    for bt, st, _ in starts:
+        end = None if bt.current else bt.last_rt
+        if st is not None and st < a and (end is None or b <= end):
+            return None            # the Pi kept running: only the sensors service was restarted
+    return Found("unexplained", "", a, b,
+                 {"source": "readings", "start_from": "last stored reading",
+                  "end_from": "first reading after the gap (the Pi start, if any, was not logged)"})
+
+
 def outage_message(f: Found) -> str:
     d = fmt_duration(f.duration_s)
+    if f.kind == "unexplained":
+        return (f"Readings stopped on {_day(f.started_at)} from about {_hm(f.started_at)} to {_hm(f.ended_at)} ({d}), "
+                f"then the sensors service started again: a power cut or a planned restart (no journal from then to tell which).")
+    if f.detail.get("source") == "readings":
+        return (f"Probable power cut on {_day(f.ended_at)}: off from about {_hm(f.started_at)} to {_hm(f.ended_at)} "
+                f"(about {d}), then the controller restarted by itself. From a gap in the readings; no journal of "
+                f"the run before, so a planned shutdown is not ruled out.")
     if f.kind == "restart":
         return f"The controller was shut down and restarted: off from {_hm(f.started_at)} to {_hm(f.ended_at)} ({d})."
     tail = " Under-voltage was logged just before." if f.detail.get("undervoltage_before") else ""
@@ -265,6 +329,10 @@ class PowerMonitor:
         self._uptime = uptime or _read_uptime
         self._now, self._mono, self.poll_s = now, mono, poll_s
         self._scanned = False
+        self._scan_mono: float | None = None
+        self._gaps_done = False
+        self._boots: list[Boot] = []
+        self._current_start: datetime | None = None
         self._uv_since: tuple[datetime, float, bool] | None = None   # (start, mono, clock trusted then)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -290,7 +358,11 @@ class PowerMonitor:
     def tick(self) -> None:
         if not self._scanned and self.clock.trusted():
             self._scanned = True
+            self._scan_mono = self._mono()
             self.scan()
+        if self._scanned and not self._gaps_done and self._mono() - self._scan_mono >= GAP_SCAN_DELAY_S:
+            self._gaps_done = True
+            self.scan_gaps()
         self.check_undervoltage()
 
     # ── power cuts and restarts, from the journal ─────────────────────────
@@ -314,6 +386,7 @@ class PowerMonitor:
             return []
         now = self._now()
         current_start = now - timedelta(seconds=self._uptime())
+        self._boots, self._current_start = boots, current_start
         found = find_events(boots, self.last_reading_before, current_start)
         new: list[PowerEvent] = []
         with self.db.session() as s:
@@ -322,18 +395,56 @@ class PowerMonitor:
                 if f.boot_id in have:
                     continue
                 ev = PowerEvent(kind=f.kind, boot_id=f.boot_id, started_at=f.started_at, ended_at=f.ended_at,
-                                duration_s=f.duration_s, message=outage_message(f)[:255], detail=f.detail,
+                                duration_s=f.duration_s, message=clip(outage_message(f)), detail=f.detail,
                                 recorded_at=now)
                 s.add(ev)
                 new.append(ev)
+        self._alert(new, now)
+        return new
+
+    def _alert(self, new: list[PowerEvent], now: datetime) -> None:
         signals = []
         for ev in new:
             log.info("power: %s", ev.message)
             when = ev.ended_at or ev.started_at
             if ev.kind == "outage" and when is not None and now - when <= ALERT_WINDOW:
-                signals.append(AlertSignal(f"outage:{ev.boot_id}", "medium", "power", "POWER_OUTAGE", ev.message, "event"))
+                key = f"outage:{ev.boot_id}" if ev.boot_id else f"outage:gap:{ev.started_at.isoformat()}"
+                signals.append(AlertSignal(key, "medium", "power", "POWER_OUTAGE", ev.message, "event"))
         if signals and self.alerts is not None:
             self.alerts.sync(signals, now)
+
+    # ── fallback: gaps in the readings ────────────────────────────────────
+    def scan_gaps(self) -> list[PowerEvent]:
+        """Record gaps in the readings that the journal does not explain (see the module docstring)."""
+        now = self._now()
+        current_start = self._current_start or now - timedelta(seconds=self._uptime())
+        gaps = reading_gaps(self.db, now - GAP_WINDOW)
+        new: list[PowerEvent] = []
+        with self.db.session() as s:
+            for a, b in gaps:
+                warm = s.execute(select(func.min(SensorReading.recorded_at))
+                                 .where(SensorReading.quality == "WARMING", SensorReading.recorded_at >= b,
+                                        SensorReading.recorded_at <= b + WARMING_WITHIN)).scalar()
+                if warm is None:
+                    continue       # no service start after it: not a restart (e.g. the database was busy)
+                lo = func.coalesce(PowerEvent.started_at, PowerEvent.ended_at)
+                hi = func.coalesce(PowerEvent.ended_at, PowerEvent.started_at)
+                if s.execute(select(func.count()).select_from(PowerEvent)
+                             .where(PowerEvent.kind != "undervoltage", lo <= b + OVERLAP_SLACK,
+                                    hi >= a - OVERLAP_SLACK)).scalar():
+                    continue       # already in the log (journal scan, or added by hand)
+                f = classify_gap(a, b, self._boots, current_start)
+                if f is None:
+                    continue
+                f.detail.update(gap_s=round((b - a).total_seconds()), first_reading_after=b.isoformat(),
+                                warming_from=warm.isoformat())
+                ev = PowerEvent(kind=f.kind, boot_id=f.boot_id or None, started_at=f.started_at, ended_at=f.ended_at,
+                                duration_s=f.duration_s, message=clip(outage_message(f)), detail=f.detail,
+                                recorded_at=now)
+                s.add(ev)
+                s.flush()          # so the next gap's overlap check sees it
+                new.append(ev)
+        self._alert(new, now)
         return new
 
     # ── brief dips, from the under-voltage flag ───────────────────────────
@@ -355,14 +466,14 @@ class PowerMonitor:
             if not trusted:
                 msg = msg.replace(" at ", " at about ", 1) + " (time not exact: clock not yet set)"
             ev = PowerEvent(kind="undervoltage", boot_id=None, started_at=start, ended_at=end, duration_s=secs,
-                            message=msg[:255], detail={"source": self.uv.source, "clock_trusted": trusted},
+                            message=clip(msg), detail={"source": self.uv.source, "clock_trusted": trusted},
                             recorded_at=self._now())
             with self.db.session() as s:
                 s.add(ev)
             log.warning("power: %s", msg)
             if self.alerts is not None:
                 self.alerts.sync([AlertSignal(f"undervoltage:{start.isoformat()}", "medium", "power", "UNDERVOLTAGE",
-                                              msg[:255], "event")], self._now())
+                                              clip(msg), "event")], self._now())
             return ev
         return None
 
@@ -386,10 +497,9 @@ def add_manual(db: Database, started_at: datetime | None, ended_at: datetime, no
     ensure_table(db)
     f = Found("outage", "", started_at, ended_at, {"start_from": "entered by hand", "end_from": "entered by hand"})
     msg = outage_message(f).replace("and restarted by itself.", "(recorded by hand).")
-    if note:
-        msg = f"{msg} {note}"
+    # The note goes in detail only: added to the message it could be cut short (it was, 17 Nov 2026).
     ev = PowerEvent(kind="outage", boot_id=None, started_at=started_at, ended_at=ended_at, duration_s=f.duration_s,
-                    message=msg[:255], detail={"source": "manual", "note": note}, recorded_at=utcnow())
+                    message=clip(msg), detail={"source": "manual", "note": note}, recorded_at=utcnow())
     with db.session() as s:
         s.add(ev)
     return ev

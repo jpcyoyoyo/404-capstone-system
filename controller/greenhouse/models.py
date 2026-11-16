@@ -215,7 +215,7 @@ class PowerEvent(Base):
     """Power cuts, planned restarts and supply dips (greenhouse/power.py, added 17 Nov 2026)."""
     __tablename__ = "power_events"
     id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
-    kind: Mapped[str] = mapped_column(String(16))            # outage | restart | undervoltage
+    kind: Mapped[str] = mapped_column(String(16))            # outage | restart | undervoltage | unexplained
     boot_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)  # the boot after a cut or restart
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)   # power went (last moment surely on)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)  # power back (Pi started)

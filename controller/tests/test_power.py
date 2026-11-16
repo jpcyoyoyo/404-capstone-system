@@ -179,7 +179,84 @@ def test_manual_add_and_table_race(tmp_path):
     db.create_all()
     ensure_table(db)
     ensure_table(db)                       # a second create is quietly ignored
-    ev = add_manual(db, NOW - timedelta(minutes=6), NOW, "from the co2_01 gap")
+    note = "from the co2_01 gap; " + "a long explanation of where the times came from " * 6
+    ev = add_manual(db, NOW - timedelta(minutes=6), NOW, note)
     assert ev.kind == "outage" and abs(ev.duration_s - 360) < 1
-    assert "recorded by hand" in ev.message and "co2_01" in ev.message
+    assert ev.message.endswith("(recorded by hand).")          # the note is not squeezed into the message
+    assert ev.detail["note"] == note                            # it is kept whole here
     assert [e.id for e in list_events(db, 30)] == [ev.id]
+
+
+def test_clip_keeps_whole_words():
+    from greenhouse.power import clip
+    assert clip("short") == "short"
+    c = clip("word " * 80)
+    assert len(c) <= 255 and c.endswith("word…")
+
+
+# ── fallback: gaps in the readings (the 17 Nov brownouts) ─────────────────
+class OneBoot:
+    """A journal that keeps only the running boot (as on 17 Nov, when it was not yet kept on the card)."""
+
+    def __call__(self, args, **kw):
+        out = json.dumps([{"index": 0, "boot_id": "c" * 32}]) if "--list-boots" in args else ""
+        return SimpleNamespace(stdout=out, returncode=0)
+
+
+def readings(db, start, end, gaps=(), warming_after=()):
+    """co2_01 every 30 s from start to end, none inside the gaps, WARMING for 3 min after each gap listed."""
+    t = start
+    with db.session() as s:
+        while t <= end:
+            if not any(a < t < b for a, b in gaps):
+                q = "WARMING" if any(b <= t < b + timedelta(minutes=3) for b in warming_after) else "VALID"
+                s.add(SensorReading(sensor_id="co2_01", value=500, raw=500, unit="ppm", quality=q, recorded_at=t))
+            t += timedelta(seconds=30)
+
+
+def test_gaps_like_17_nov(tmp_path):
+    # The Pi started 10 min ago; the journal keeps nothing before that. Brownout 1 left a 61 s gap
+    # 38 min ago (no boot logged), brownout 2 a 93 s gap around the start, and a person restarted the
+    # sensors service 4 min ago (inside the running boot: not a power event).
+    db, bus, mon, _ = make(tmp_path, OneBoot(), uptime=600)
+    start = NOW - timedelta(seconds=600)
+    g1 = (NOW - timedelta(minutes=39), NOW - timedelta(minutes=38))        # (last reading before, first after)
+    g2 = (start - timedelta(seconds=60), start + timedelta(seconds=30))
+    g3 = (NOW - timedelta(minutes=5), NOW - timedelta(minutes=4))
+    readings(db, NOW - timedelta(hours=2), NOW, gaps=[g1, g2, g3], warming_after=[g1[1], g2[1], g3[1]])
+    assert mon.scan() == []                      # nothing the journal can show
+    new = mon.scan_gaps()
+    assert [e.kind for e in new] == ["unexplained", "outage"]
+    u, cut = new
+    assert u.detail["source"] == "readings" and "a power cut or a planned restart" in u.message
+    assert cut.ended_at == start and cut.boot_id == "c" * 32 and "Probable power cut" in cut.message
+    assert abs(cut.duration_s - 60) < 1 and cut.started_at == g2[0]
+    with db.session() as s:
+        assert [a.code for a in s.query(Alert).all()] == ["POWER_OUTAGE"]   # only the probable cut alerts
+    assert mon.scan_gaps() == []                 # nothing added twice
+
+
+def test_gap_without_restart_or_already_logged_is_skipped(tmp_path):
+    from greenhouse.power import add_manual
+    db, _, mon, _ = make(tmp_path, OneBoot(), uptime=600)
+    g1 = (NOW - timedelta(minutes=50), NOW - timedelta(minutes=48))   # no WARMING after: not a restart
+    g2 = (NOW - timedelta(minutes=30), NOW - timedelta(minutes=29))   # recorded by hand already
+    readings(db, NOW - timedelta(hours=1), NOW, gaps=[g1, g2], warming_after=[g2[1]])
+    add_manual(db, g2[0], g2[1], "by hand")
+    mon.scan()
+    assert mon.scan_gaps() == []
+
+
+def test_gap_scan_runs_five_minutes_after_the_journal_scan(tmp_path):
+    db, _, mon, clock = make(tmp_path, OneBoot(), uptime=600)
+    calls = []
+    mon.scan_gaps = lambda: calls.append(1) or []
+    mon.tick()
+    assert calls == []
+    clock["t"] += 299
+    mon.tick()
+    assert calls == []
+    clock["t"] += 2
+    mon.tick()
+    mon.tick()
+    assert calls == [1]

@@ -94,8 +94,9 @@ def _power_cli(args, settings, reg, db) -> None:
         except Exception:
             bus = None
         alerts = AlertManager(db, bus, Topics(reg.greenhouse_id), owner="power") if bus else None
-        new = PowerMonitor(db, alerts, clock, undervolt=False).scan()
-        print(f"{len(new)} new event(s) recorded" + (":" if new else "; nothing new in the journal"))
+        mon = PowerMonitor(db, alerts, clock, undervolt=False)
+        new = mon.scan() + mon.scan_gaps()
+        print(f"{len(new)} new event(s) recorded" + (":" if new else "; nothing new in the journal or the readings"))
         for ev in new:
             print("  " + ev.message)
         if bus:
@@ -121,9 +122,12 @@ def _power_cli(args, settings, reg, db) -> None:
         print(f"no power events in the last {args.days} days")
         return
     fmt = lambda d: local_time_of(d).strftime("%d %b %H:%M:%S") if d else "?"
-    print(f"{'kind':<13} {'power went':<16} {'back':<16} {'off for':<12} note")
+    print(f"{'kind':<13} {'power went':<16} {'back':<16} {'off for':<12} message")
     for ev in evs:
         print(f"{ev.kind:<13} {fmt(ev.started_at):<16} {fmt(ev.ended_at):<16} {fmt_duration(ev.duration_s):<12} {ev.message}")
+        note = (ev.detail or {}).get("note")
+        if note:
+            print(f"{'':<13} note: {note}")
 
 
 def main(argv: list[str] | None = None) -> None:
