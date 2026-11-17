@@ -67,6 +67,12 @@ ConnectionProvider   which backend: live (controller addresses tried in order, t
   (data plan per window, grouping at local midnight, gaps, ticks, monotone curve, zoom/pan limits;
   tested in `chartScale.test.ts`), and `components/useHistoryChart.ts` loads the range plus finer data
   for a zoomed window. Never join points across a gap and never smooth with a curve that can overshoot.
+- Sensor icons are drawings of the team's own parts (from the Evidence photos), one SVG each in
+  `src/assets/sensors/` (24 × 24, stroke `currentColor`), turned into ionicons data URLs by
+  `components/sensorIcons.ts`; `METRIC_ICON` in `components/display.ts` uses them. A new sensor gets an
+  SVG there and a `SENSOR_TYPE_ICON` entry. They are line drawings with small detail, so show them large:
+  26 px in a 40 px chip on the metric tiles, 28 px in the zone sensor list, 20–26 px beside a label,
+  and `clamp(26px, 3vw, 52px)` on the kiosk tiles.
 - Sideways pill rows go in `components/PillScroller.tsx` (no scrollbar; swipe, wheel or drag).
 - Motion: speeds, easing and every keyframe live in `theme/motion.css`; all of it switches off under
   `prefers-reduced-motion` or App Settings → Reduce motion (`html.sg-reduce-motion`). A changing reading

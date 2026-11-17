@@ -1,7 +1,7 @@
 import React from 'react';
 import { IonPage, IonContent, IonButton, IonIcon } from '@ionic/react';
 import { useHistory } from 'react-router-dom';
-import { waterOutline, flaskOutline, chevronForward, notificationsOutline, optionsOutline, analyticsOutline } from 'ionicons/icons';
+import { flaskOutline, chevronForward, notificationsOutline, optionsOutline, analyticsOutline } from 'ionicons/icons';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import { useAppSettings } from '../contexts/AppSettingsContext';
@@ -76,8 +76,8 @@ const Dashboard: React.FC = () => {
                 return (
                   <FlashBox key={k} watch={value} color={c} className="sg-snap-tile" onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)} style={{ cursor: 'pointer' }}>
                     <div className="sg-row sg-gap-8" style={{ marginBottom: 6 }}>
-                      <div className="sg-icon-chip" style={{ width: 28, height: 28, background: `${c}1f`, color: c }}>
-                        <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 14 }} />
+                      <div className="sg-icon-chip" style={{ width: 40, height: 40, borderRadius: 12, background: `${c}1f`, color: c }}>
+                        <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 26 }} />
                       </div>
                       <span style={{ fontSize: 11, color: 'var(--sg-muted)' }}>{m.label}</span>
                     </div>
@@ -157,7 +157,7 @@ const Dashboard: React.FC = () => {
             <div className="sg-card" style={{ cursor: 'pointer', order: 6, ...grey }} onClick={() => history.push('/tabs/fertigation')}>
               <div className="sg-row-between" style={{ marginBottom: 8 }}>
                 <div className="sg-row sg-gap-8">
-                  <IonIcon icon={waterOutline} style={{ color: '#3b82f6' }} />
+                  <IonIcon icon={METRIC_ICON.water_level} style={{ color: '#3b82f6', fontSize: 24 }} />
                   <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Reservoir</span>
                 </div>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}><LiveValue value={formatMetric('water_level', level.value)} />{level.value !== null ? '%' : ''}</span>
@@ -167,7 +167,7 @@ const Dashboard: React.FC = () => {
               </div>
               <div className="sg-row-between" style={{ marginTop: 10, marginBottom: 6 }}>
                 <div className="sg-row sg-gap-8">
-                  <IonIcon icon={flaskOutline} style={{ color: '#a855f7' }} />
+                  <IonIcon icon={METRIC_ICON.stock_weight} style={{ color: '#a855f7', fontSize: 24 }} />
                   <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sg-text)' }}>Stock solution</span>
                 </div>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>{stock.value !== null ? `${(stock.value / 1000).toFixed(2)} kg` : '—'}</span>

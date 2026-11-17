@@ -176,7 +176,7 @@ const KioskView: React.FC<{ base: string | null; kioskApi: ApiClient | null }> =
           return (
             <FlashBox key={k} watch={shown} color={c} className="sg-card" style={{ margin: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderTop: `4px solid ${c}`, opacity: m.installed ? 1 : 0.4, transition: 'border-color 0.4s' }}>
               <div className="sg-row sg-gap-8" style={{ fontSize: 'clamp(12px, 1.4vw, 22px)', color: 'var(--sg-muted)' }}>
-                <IonIcon icon={METRIC_ICON[k]} style={{ color: c }} /> {METRIC_INFO[k].label}
+                <IonIcon icon={METRIC_ICON[k]} style={{ color: c, fontSize: 'clamp(26px, 3vw, 52px)', flexShrink: 0 }} /> {METRIC_INFO[k].label}
               </div>
               <div style={{ fontSize: 'clamp(28px, 5vw, 84px)', fontWeight: 800, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
                 <LiveValue value={shown} />

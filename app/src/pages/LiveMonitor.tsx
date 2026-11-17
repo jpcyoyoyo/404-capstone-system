@@ -12,6 +12,7 @@ import { formatMetric, METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
 import type { Quality } from '../contract/types';
 import { METRIC_ICON, statusColor } from '../components/display';
+import { SENSOR_TYPE_ICON } from '../components/sensorIcons';
 import { timeAgo } from '../components/format';
 import { FlashBox, LiveValue, Skeleton } from '../components/motion';
 
@@ -40,8 +41,8 @@ const LiveMonitor: React.FC = () => {
         return (
           <FlashBox key={k} watch={shown} color={c} className="sg-snap-tile" style={{ cursor: 'pointer' }} onClick={() => history.push(`/tabs/live-monitor/metric/${k}`)}>
             <div className="sg-row sg-gap-8" style={{ marginBottom: 8 }}>
-              <div className="sg-icon-chip" style={{ width: 28, height: 28, background: `${c}1f`, color: c }}>
-                <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 14 }} />
+              <div className="sg-icon-chip" style={{ width: 40, height: 40, borderRadius: 12, background: `${c}1f`, color: c }}>
+                <IonIcon icon={METRIC_ICON[k]} style={{ fontSize: 26 }} />
               </div>
               <span style={{ fontSize: 11, color: 'var(--sg-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{METRIC_INFO[k].short}</span>
             </div>
@@ -110,9 +111,12 @@ const LiveMonitor: React.FC = () => {
               const known = k in METRIC_INFO;
               return (
                 <div key={s.id} className="sg-row-between" style={{ padding: '10px 14px', borderBottom: i < zoneSensors.length - 1 ? '1px solid var(--sg-border)' : 'none', opacity: s.installed ? 1 : 0.5 }}>
-                  <div>
-                    <div style={{ fontSize: 13, color: 'var(--sg-text)', fontWeight: 600 }}>{known ? METRIC_INFO[k].label : s.type.replace('_', ' ')}</div>
-                    <div style={{ fontSize: 10, color: 'var(--sg-dim)', fontFamily: 'monospace' }}>{s.id}{r ? ` · ${timeAgo(r.ts)}` : ''}</div>
+                  <div className="sg-row sg-gap-8" style={{ minWidth: 0 }}>
+                    {SENSOR_TYPE_ICON[s.type] && <IonIcon icon={SENSOR_TYPE_ICON[s.type]} style={{ fontSize: 28, color: 'var(--sg-muted)', flexShrink: 0 }} />}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: 'var(--sg-text)', fontWeight: 600 }}>{known ? METRIC_INFO[k].label : s.type.replace('_', ' ')}</div>
+                      <div style={{ fontSize: 10, color: 'var(--sg-dim)', fontFamily: 'monospace' }}>{s.id}{r ? ` · ${timeAgo(r.ts)}` : ''}</div>
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sg-text)' }}>

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { IonPage, IonContent, IonButton, IonIcon, IonSpinner, useIonAlert, useIonViewWillEnter } from '@ionic/react';
-import { flaskOutline, waterOutline, scaleOutline, checkmarkCircle, closeCircle } from 'ionicons/icons';
+import { checkmarkCircle, closeCircle } from 'ionicons/icons';
 import PersistentHeader from '../components/PersistentHeader';
 import StatusBanner from '../components/StatusBanner';
 import { useGreenhouse } from '../providers/GreenhouseProvider';
@@ -8,7 +8,7 @@ import { useCommand } from '../components/useCommand';
 import { CommandBadge, Sending } from '../components/CommandStatus';
 import { LiveValue, SkeletonRows } from '../components/motion';
 import { formatMetric } from '../providers/metrics';
-import { statusColor } from '../components/display';
+import { METRIC_ICON, statusColor } from '../components/display';
 import { fmtDateTime } from '../components/format';
 import { doseStop, reasonText } from '../contract/codes';
 import type { FertilizerReport } from '../contract/types';
@@ -80,7 +80,7 @@ const Fertigation: React.FC = () => {
         <div className="sg-card">
           <div className="sg-row-between" style={{ marginBottom: 6 }}>
             <div className="sg-row sg-gap-8">
-              <IonIcon icon={scaleOutline} style={{ color: '#a855f7' }} />
+              <IonIcon icon={METRIC_ICON.stock_weight} style={{ color: '#a855f7', fontSize: 26 }} />
               <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sg-text)' }}>Stock solution</span>
             </div>
             <span className={`sg-pill ${dosing ? 'sg-pill-info' : 'sg-pill-idle'}`}>{dosing ? 'DOSING' : 'IDLE'}</span>
@@ -101,11 +101,11 @@ const Fertigation: React.FC = () => {
 
         <div className="sg-row sg-gap-8" style={{ marginBottom: 12 }}>
           <div className="sg-kpi" style={{ flex: 1 }}>
-            <div className="sg-row sg-gap-4" style={{ fontSize: 10, color: 'var(--sg-muted)' }}><IonIcon icon={waterOutline} /> Reservoir</div>
+            <div className="sg-row sg-gap-4" style={{ fontSize: 10, color: 'var(--sg-muted)' }}><IonIcon icon={METRIC_ICON.water_level} style={{ fontSize: 20 }} /> Reservoir</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: statusColor(level.status) }}><LiveValue value={formatMetric('water_level', level.value)} />{level.value !== null ? '%' : ''}</div>
           </div>
           <div className="sg-kpi" style={{ flex: 1 }}>
-            <div className="sg-row sg-gap-4" style={{ fontSize: 10, color: 'var(--sg-muted)' }}><IonIcon icon={flaskOutline} /> Nutrient pH</div>
+            <div className="sg-row sg-gap-4" style={{ fontSize: 10, color: 'var(--sg-muted)' }}><IonIcon icon={METRIC_ICON.ph} style={{ fontSize: 20 }} /> Nutrient pH</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: statusColor(ph.status) }}><LiveValue value={formatMetric('ph', ph.value)} /></div>
           </div>
           <div className="sg-kpi" style={{ flex: 1 }}>

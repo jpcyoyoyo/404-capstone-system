@@ -1,13 +1,16 @@
 import {
-  thermometerOutline, waterOutline, leafOutline, sunnyOutline, flaskOutline, cloudOutline, speedometerOutline,
-  bulbOutline, cogOutline, rainyOutline, gitBranchOutline, sync, beakerOutline, flowerOutline,
+  waterOutline, rainyOutline, gitBranchOutline, sync, cogOutline, bulbOutline, flowerOutline,
 } from 'ionicons/icons';
 import type { MetricKey, MetricStatus } from '../providers/types';
+import { SENSOR_TYPE_ICON } from './sensorIcons';
 
+/** Each reading shows the sensor that takes it (drawings in assets/sensors, see sensorIcons.ts). */
 export const METRIC_ICON: Record<MetricKey, string> = {
-  temperature: thermometerOutline, humidity: cloudOutline, soil_moisture: leafOutline, light: sunnyOutline,
-  co2: cloudOutline, ph: flaskOutline, ec: beakerOutline, water_level: waterOutline, water_temperature: thermometerOutline,
-  water_flow: speedometerOutline, stock_weight: flowerOutline,
+  temperature: SENSOR_TYPE_ICON.temperature, humidity: SENSOR_TYPE_ICON.humidity,
+  soil_moisture: SENSOR_TYPE_ICON.soil_moisture, light: SENSOR_TYPE_ICON.light, co2: SENSOR_TYPE_ICON.co2,
+  ph: SENSOR_TYPE_ICON.ph, ec: SENSOR_TYPE_ICON.ec, water_level: SENSOR_TYPE_ICON.water_level,
+  water_temperature: SENSOR_TYPE_ICON.water_temperature, water_flow: SENSOR_TYPE_ICON.water_flow,
+  stock_weight: SENSOR_TYPE_ICON.stock_weight,
 };
 
 export const ACTUATOR_ICON: Record<string, string> = {
