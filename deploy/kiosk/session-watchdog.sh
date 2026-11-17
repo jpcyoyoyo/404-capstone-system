@@ -6,8 +6,12 @@
 # screen instead of logging in again (auto-login only happens when LightDM starts), so the screen
 # stayed blank until a reboot at 07:30. kiosk.sh cannot draw without a desktop.
 #
-# If the login screen is up and the auto-login user has no desktop on two checks in a row, this
-# restarts LightDM, which logs in again; the new desktop starts kiosk.sh, and kiosk.sh stops its old copy.
+# 17 Nov 2026, 19:14:35: the same HDMI drop-out, but this time LightDM itself ended up failed (no login
+# screen at all), which the first version of this check took for "normal"; the screen stayed blank.
+#
+# If the auto-login user has no desktop on two checks in a row while LightDM shows its login screen,
+# or while LightDM has failed or stopped (and is the enabled display manager), this restarts LightDM,
+# which logs in again; the new desktop starts kiosk.sh, and kiosk.sh stops its old copy.
 # At most one restart every 10 minutes. A deliberate log-out is undone the same way; to keep the
 # login screen, stop the timer first: sudo systemctl stop greenhouse-session-watchdog.timer
 set -u
@@ -21,8 +25,20 @@ user=$(sed -n 's/^[[:space:]]*autologin-user[[:space:]]*=[[:space:]]*//p' "$CONF
 greeter=0; pgrep -u lightdm -f greeter >/dev/null 2>&1 && greeter=1
 desktop=0; { pgrep -u "$user" -x labwc || pgrep -u "$user" -x wayfire; } >/dev/null 2>&1 && desktop=1
 
-if [ "$greeter" = 0 ] || [ "$desktop" = 1 ]; then
-  rm -f "$STATE"; exit 0                                    # normal: the desktop is up
+dm=$(systemctl is-active lightdm 2>/dev/null)
+problem=""
+if [ "$desktop" = 0 ]; then
+  if [ "$greeter" = 1 ]; then
+    problem="login screen up and no desktop for $user"
+  elif [ "$dm" = failed ] || [ "$dm" = inactive ]; then
+    # only when LightDM is meant to run (a Pi set up without a desktop is left alone)
+    if systemctl is-enabled --quiet lightdm 2>/dev/null || systemctl is-enabled --quiet display-manager 2>/dev/null; then
+      problem="lightdm $dm and no desktop for $user"
+    fi
+  fi
+fi
+if [ -z "$problem" ]; then
+  rm -f "$STATE"; exit 0                                    # normal: the desktop is up (or nothing to bring back)
 fi
 if [ ! -f "$STATE" ]; then
   touch "$STATE"; exit 0                                    # first sighting: check again in a minute
@@ -32,5 +48,6 @@ if [ $((now - last)) -lt 600 ]; then
   exit 0                                                    # restarted less than 10 minutes ago
 fi
 rm -f "$STATE"; echo "$now" > "$LAST"
-logger -t greenhouse-session-watchdog "login screen up and no desktop for $user: restarting lightdm"
+logger -t greenhouse-session-watchdog "$problem: restarting lightdm"
+systemctl reset-failed lightdm 2>/dev/null                  # a failed unit can refuse to start again until reset
 systemctl --no-block restart lightdm
