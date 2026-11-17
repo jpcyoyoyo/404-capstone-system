@@ -83,6 +83,9 @@ Storage=persistent
 SystemMaxUse=200M
 EOS
 systemctl restart systemd-journald
+# Move the running boot's journal from memory to the SD card now. Without this the first run after
+# set-up stayed in memory until the next restart and was lost with the 07:48 power cut (17 Nov 2026).
+journalctl --flush
 mkdir -p "$DEST/app" "$ETC"      # rsync creates only the last directory level
 rsync -a --delete --exclude '__pycache__' --exclude '*.db' "$REPO/controller/" "$DEST/controller/"
 rsync -a --delete "$REPO/contract/" "$DEST/contract/"
