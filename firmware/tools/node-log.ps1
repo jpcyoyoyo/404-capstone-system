@@ -20,7 +20,11 @@ param(
 )
 
 $enc = New-Object System.Text.UTF8Encoding($false)
-if ($LogFile) { $LogFile = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $LogFile)) }
+if ($LogFile) {
+  # a full path (C:\...) is used as given; a relative one is taken from the current folder
+  if (-not [System.IO.Path]::IsPathRooted($LogFile)) { $LogFile = Join-Path (Get-Location) $LogFile }
+  $LogFile = [System.IO.Path]::GetFullPath($LogFile)
+}
 $client = New-Object System.Net.Sockets.TcpClient
 try {
   $wait = $client.BeginConnect($Node, $Port, $null, $null)
