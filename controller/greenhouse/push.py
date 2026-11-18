@@ -23,6 +23,10 @@ How it fits together:
   - "Greenhouse controller not reporting" when its heartbeat has not arrived for 5 min (power or
     internet at the greenhouse), and "back" when it returns. Only the cloud can send these: when
     the greenhouse is cut off it cannot tell anyone itself.
+* Each notification carries a picture of what it is about (``alert_icon``): a water drop for a low
+  reservoir, the team's drawing of the sensor for a sensor fault, a stop sign for an emergency stop,
+  and so on. The pictures are in ``app/public/icons/alerts/`` (made by ``app/icon-src/make_icons.py``)
+  and the service worker shows the app's leaf as the small status-bar icon.
 * Delivery runs on a background thread so an upload is never held up by a push service. A
   subscription the push service reports as gone (404/410: the app was uninstalled, or notifications
   were blocked) is deleted. Accounts that are deactivated get nothing.
@@ -95,6 +99,68 @@ ALERT_TITLE: dict[str, str] = {
 }
 
 
+# The picture shown with each notification: app/public/icons/alerts/<name>.png. Every name used
+# here has a file there (tests/test_push.py checks), and app/icon-src/make_icons.py draws them.
+ICON_DIR = "/icons/alerts/"
+ALERT_ICON: dict[str, str] = {
+    "LOW_WATER": "water-low",
+    "FLOAT_SWITCH_FAULT": "float-switch-fault",
+    "NODE_OFFLINE": "node-offline",
+    "ZONE_MANUAL_REQUIRED": "zone-manual",
+    "MAX_RUN_EXCEEDED": "max-run",
+    "THRESHOLD_BREACH": "out-of-range",
+    "ESTOP": "estop",
+    "CONTROLLER_OFFLINE": "controller-offline",
+    "DOSE_ABORTED": "dose-stopped",
+    "LOAD_CELL_FAULT": "load-cell-fault",
+    "NO_FLOW": "dose-stopped",
+    "TIMEOUT": "dose-stopped",
+    "INTERLOCK": "dose-stopped",
+    "NO_DOSER": "dose-stopped",
+    "PUMP_ERROR": "dose-stopped",
+    "STOCK_LOW": "stock-low",
+    "HAL_ERROR": "hardware-error",
+    "ACTUATOR_FAULT": "actuator-fault",
+    "STAGE_CHANGED": "stage-changed",
+    "HARVEST_DUE": "harvest-due",
+    "CLOUD_NOT_CONFIGURED": "cloud-not-configured",
+    "CLOUD_UNREACHABLE": "cloud-unreachable",
+    "POWER_OUTAGE": "power-outage",
+    "UNDERVOLTAGE": "undervoltage",
+}
+# Sensor alerts show the sensor itself (the team's drawing of it) with a mark for what is wrong.
+SENSOR_STATE = {"SENSOR_INVALID": "invalid", "SENSOR_STALE": "stale", "SENSOR_UNCALIBRATED": "uncalibrated"}
+SENSOR_TYPES = ("temperature", "humidity", "soil_moisture", "light", "co2", "ph", "ec", "water_temperature",
+                "water_level", "water_flow", "stock_weight", "float_switch")
+# When the registry does not know the sensor: its type from the start of its id (contract/registry.yaml).
+SENSOR_PREFIX = {"temp_": "temperature", "hum_": "humidity", "soil_": "soil_moisture", "light_": "light",
+                 "co2_": "co2", "ph_": "ph", "ec_": "ec", "wtemp_": "water_temperature", "level_": "water_level",
+                 "flow_": "water_flow", "stock_": "stock_weight", "float_": "float_switch"}
+
+
+def sensor_type(source: str, reg=None) -> str | None:
+    t = None
+    if reg is not None:
+        try:
+            if reg.has_sensor(source):
+                t = reg.sensor(source).type
+        except Exception:           # a registry problem must never stop a notification
+            t = None
+    if t is None:
+        t = next((v for k, v in SENSOR_PREFIX.items() if source.startswith(k)), None)
+    return t if t in SENSOR_TYPES else None
+
+
+def alert_icon(code: str, source: str = "", reg=None) -> str:
+    """Path of the picture for an alert, e.g. /icons/alerts/sensor-soil-moisture-stale.png."""
+    if code in SENSOR_STATE:
+        t = sensor_type(source or "", reg)
+        name = f"sensor-{(t or 'generic').replace('_', '-')}-{SENSOR_STATE[code]}"
+    else:
+        name = ALERT_ICON.get(code) or ("dose-stopped" if code.startswith("DOSE") else "alert-generic")
+    return f"{ICON_DIR}{name}.png"
+
+
 def alert_title(code: str) -> str:
     if code in ALERT_TITLE:
         return ALERT_TITLE[code]
@@ -155,11 +221,13 @@ class Message:
     url: str = "/tabs/alerts"
     user_id: int | None = None          # only this account's devices (the test button)
     renotify: bool = True
+    icon: str = ""                      # /icons/alerts/….png; empty: the service worker shows the app icon
     data: dict = field(default_factory=dict)
 
     def payload(self) -> str:
+        extra = {"icon": self.icon} if self.icon else {}
         return json.dumps({"title": self.title, "body": self.body, "severity": self.severity, "tag": self.tag,
-                           "url": self.url, "renotify": self.renotify, "ts": iso(utcnow()), **self.data})
+                           "url": self.url, "renotify": self.renotify, "ts": iso(utcnow()), **extra, **self.data})
 
 
 def _webpush_send(sub: dict, data: str, vapid, subject: str, urgency: str) -> int:
@@ -346,6 +414,7 @@ class PushService:
                 sev = r.get("severity") or "medium"
                 self.notify(Message(title=alert_title(str(r.get("code") or "")), body=str(r.get("message") or ""),
                                     severity=sev, tag=f"alert-{r.get('id')}", url=f"/tabs/alert-detail/{r.get('id')}",
+                                    icon=alert_icon(str(r.get("code") or ""), str(r.get("source") or ""), self.reg),
                                     data={"alert_id": r.get("id"), "code": r.get("code")}))
             return
         titles = []
@@ -355,7 +424,8 @@ class PushService:
                 titles.append(t)
         body = ", ".join(titles[:4]) + (f" and {len(titles) - 4} more" if len(titles) > 4 else "") + ". Open the app for details."
         self.notify(Message(title=f"{len(rows)} new greenhouse alerts", body=body,
-                            severity=rows[0].get("severity") or "medium", tag="alerts-batch", url="/tabs/alerts"))
+                            severity=rows[0].get("severity") or "medium", tag="alerts-batch", url="/tabs/alerts",
+                            icon=f"{ICON_DIR}alerts-batch.png"))
 
     def check_controller(self) -> Message | None:
         """Notify when the controller's heartbeat stops reaching the cloud, and when it returns."""
@@ -384,14 +454,16 @@ class PushService:
                 body=(f"Nothing from the greenhouse controller since {self._hm(ts)} ({mins} min). The greenhouse may "
                       "have lost power or internet. If only the internet is down, the controller keeps running and "
                       "uploads what it missed when the connection returns."),
-                severity="high", tag="controller-status", url="/tabs/dashboard")
+                severity="high", tag="controller-status", url="/tabs/dashboard",
+                icon=f"{ICON_DIR}controller-offline.png")
         elif age < BACK_WITHIN and was == "offline":
             last = parse_iso(prev.get("last_heartbeat"))
             self.db.kv_set(STATE_KEY, json.dumps({"state": "online", "last_heartbeat": iso(ts)}))
             gap = f"; silent for about {self._dur(ts - last)}" if last else ""
             msg = Message(title="Greenhouse controller reporting again",
                           body=f"The greenhouse controller is reporting again (last heard {self._hm(ts)}{gap}).",
-                          severity="high", tag="controller-status", url="/tabs/dashboard")
+                          severity="high", tag="controller-status", url="/tabs/dashboard",
+                          icon=f"{ICON_DIR}controller-back.png")
         elif was is None and age < BACK_WITHIN:
             self.db.kv_set(STATE_KEY, json.dumps({"state": "online", "last_heartbeat": iso(ts)}))
         if msg:

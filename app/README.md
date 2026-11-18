@@ -34,7 +34,11 @@ once (after the first `npm run build`):
 ```bash
 npm run build
 npx cap add android
+npx @capacitor/assets@3.0.5 generate --android
 ```
+
+The last command puts the app's leaf icon and start-up screen (from `assets/`) in place of the
+Capacitor logo; run it again whenever `assets/` changes (see `icon-src/README.md`).
 
 Then, and after every change:
 

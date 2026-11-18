@@ -20,7 +20,9 @@
          from the Google Fonts CDN, so the app renders correctly with no
          internet access — required for the Raspberry Pi desktop build. -->
 
-    <link rel="shortcut icon" type="image/png" href="/favicon.png" />
+    <!-- The app icon (public/icons/icon-512.png) for the browser tab; app/icon-src/make_icons.py makes favicon.png. -->
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     
     <!-- add to homescreen for ios -->
     <meta name="mobile-web-app-capable" content="yes" />

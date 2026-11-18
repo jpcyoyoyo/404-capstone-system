@@ -19,6 +19,8 @@ from greenhouse.timeutil import iso, utcnow
 from .test_api import Rig
 
 CODES_TS = Path(__file__).resolve().parents[2] / "app" / "src" / "contract" / "codes.ts"
+APP_PUBLIC = Path(__file__).resolve().parents[2] / "app" / "public"
+SW_ICON = re.compile(r"^/icons/alerts/[a-z0-9-]+\.png$")     # what app/public/sw.js accepts
 
 
 def b64(b: bytes) -> str:
@@ -117,6 +119,38 @@ def test_titles_match_the_app():
     assert pushmod.alert_title("NEW_CODE") == "New code"
 
 
+# ── the picture with each notification ─────────────────────────────────────────
+def test_every_alert_has_a_picture_the_service_worker_shows(cloud):
+    assert {sd.type for sd in cloud.reg.sensors} <= set(pushmod.SENSOR_TYPES)   # a new sensor type needs its drawing
+    paths = {pushmod.alert_icon(c) for c in pushmod.ALERT_TITLE}
+    paths |= {pushmod.alert_icon(c, sd.id, cloud.reg) for c in pushmod.SENSOR_STATE for sd in cloud.reg.sensors}
+    assert all("generic" not in pushmod.alert_icon("SENSOR_STALE", sd.id, cloud.reg) for sd in cloud.reg.sensors)
+    paths |= {pushmod.alert_icon(c, "unknown_99") for c in pushmod.SENSOR_STATE}
+    paths |= {pushmod.alert_icon("DOSE_SOMETHING_NEW"), pushmod.alert_icon("NEW_CODE"),
+              f"{pushmod.ICON_DIR}alerts-batch.png", f"{pushmod.ICON_DIR}controller-offline.png",
+              f"{pushmod.ICON_DIR}controller-back.png"}
+    for p in sorted(paths):
+        assert SW_ICON.match(p), p
+        assert (APP_PUBLIC / p.lstrip("/")).is_file(), f"missing picture {p}"
+    assert (APP_PUBLIC / "icons" / "badge-96.png").is_file()
+
+
+def test_sensor_alerts_show_the_sensor(cloud):
+    assert pushmod.alert_icon("SENSOR_STALE", "soil_z1_02", cloud.reg) == "/icons/alerts/sensor-soil-moisture-stale.png"
+    assert pushmod.alert_icon("SENSOR_INVALID", "co2_01", cloud.reg) == "/icons/alerts/sensor-co2-invalid.png"
+    assert pushmod.alert_icon("SENSOR_UNCALIBRATED", "wtemp_01") == "/icons/alerts/sensor-water-temperature-uncalibrated.png"
+    assert pushmod.alert_icon("SENSOR_STALE", "mystery") == "/icons/alerts/sensor-generic-stale.png"
+    assert pushmod.alert_icon("TIMEOUT") == "/icons/alerts/dose-stopped.png"
+    assert pushmod.alert_icon("NEW_CODE") == "/icons/alerts/alert-generic.png"
+    subscribe(cloud)
+    upload_alerts(cloud, [alert_row(5, code="SENSOR_INVALID", severity="low", source="hum_z2_03")])
+    assert cloud.fake.sent[0][1]["icon"] == "/icons/alerts/sensor-humidity-invalid.png"
+
+
+def test_test_notification_uses_the_app_icon():
+    assert "icon" not in json.loads(pushmod.Message(title="t", body="b").payload())   # the service worker's default
+
+
 # ── where it is offered ───────────────────────────────────────────────────────
 def test_controller_role_does_not_offer_push(tmp_path):
     pi = Rig(tmp_path)
@@ -193,6 +227,7 @@ def test_new_alert_is_pushed_once(cloud):
     _, d = cloud.fake.sent[0]
     assert d["body"] == "message 7" and d["url"] == "/tabs/alert-detail/7" and d["tag"] == "alert-7"
     assert d["_urgency"] == "high" and d["_subject"] == "mailto:test@example.com"
+    assert d["icon"] == "/icons/alerts/water-low.png"
     upload_alerts(cloud, [alert_row(7)])                       # the next minute's upload carries it again
     assert len(cloud.fake.sent) == 1
 
@@ -212,6 +247,7 @@ def test_many_alerts_at_once_become_one_summary(cloud):
     assert cloud.fake.titles() == ["4 new greenhouse alerts"]
     d = cloud.fake.sent[0][1]
     assert d["body"].startswith("Reservoir low, ") and "Power cut" in d["body"] and d["severity"] == "high"
+    assert d["icon"] == "/icons/alerts/alerts-batch.png"
 
 
 def test_urgent_only_devices_skip_lesser_alerts(cloud):
@@ -267,6 +303,8 @@ def test_controller_silence_and_return(cloud):
     assert m.title == "Greenhouse controller reporting again" and "silent for about 16 min" in m.body
     assert cloud.fake.titles() == ["Greenhouse controller not reporting", "Greenhouse controller reporting again"]
     assert {d["tag"] for _, d in cloud.fake.sent} == {"controller-status"}   # the second replaces the first
+    assert [d["icon"] for _, d in cloud.fake.sent] == ["/icons/alerts/controller-offline.png",
+                                                       "/icons/alerts/controller-back.png"]
 
 
 def test_long_silent_controller_is_not_announced_on_first_look(cloud):

@@ -17,7 +17,11 @@ self.addEventListener('push', event => {
     body: d.body || '',
     tag: d.tag || 'greenhouse',
     renotify: d.renotify !== false,
-    icon: '/icons/icon-192.png',
+    // A picture of what the alert is about (app/public/icons/alerts, chosen by the cloud server);
+    // the app icon when the message names none or names something outside that folder.
+    icon: /^\/icons\/alerts\/[a-z0-9-]+\.png$/.test(d.icon || '') ? d.icon : '/icons/icon-192.png',
+    // The small icon Android shows in the status bar: the app's leaf (white; Android uses its shape only).
+    badge: '/icons/badge-96.png',
     // A critical alert stays on screen until it is tapped or swiped away.
     requireInteraction: d.severity === 'critical',
     timestamp: d.ts ? Date.parse(d.ts) : Date.now(),
