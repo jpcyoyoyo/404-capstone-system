@@ -10,7 +10,9 @@ import { useGreenhouse } from '../providers/GreenhouseProvider';
 import { METRIC_INFO } from '../providers/metrics';
 import type { MetricKey } from '../providers/types';
 import type { AuditEntry, EventEntry, FertilizerReport, WaterDay } from '../contract/types';
-import { downloadFile, fmtDateTime, toCsv } from '../components/format';
+import { fmtDateTime, toCsv } from '../components/format';
+import ExportPanel, { ExportPreset } from '../components/ExportPanel';
+import { csvBlob, saveFile } from '../components/saveFile';
 import { Skeleton } from '../components/motion';
 import { commandRefusal, doseStop, eventAction, plainDetail } from '../contract/codes';
 
@@ -46,6 +48,7 @@ const Records: React.FC = () => {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -82,14 +85,24 @@ const Records: React.FC = () => {
     ...audit.map(a => ({ at: a.occurred_at, kind: 'audit', who: a.actor, ...auditRow(a, names) })),
   ].sort((a, b) => b.at.localeCompare(a.at)); }, [events, audit, gh.meta.actuators]);
 
-  const exportCsv = () => {
+  // "This view as CSV": what the page shows, made in the app (also in demo mode).
+  const exportView = async () => {
+    let name = '', rows: Record<string, unknown>[] = [];
     if (tab === 'environment' && hist) {
-      const rows = Object.entries(hist.series).flatMap(([sid, pts]) => pts.map(p => ({ sensor_id: sid, ts: p.ts, value: p.value, min: p.min ?? '', max: p.max ?? '', samples: p.n ?? '', quality: p.quality ?? '' })));
-      downloadFile(`${param}-${rangeId}-${hist.resolution}-${stamp()}.csv`, toCsv(rows));
-    } else if (tab === 'water') downloadFile(`water-usage-${stamp()}.csv`, toCsv(water as unknown as Record<string, unknown>[]));
-    else if (tab === 'fertilizer' && fert) downloadFile(`fertilizer-doses-${stamp()}.csv`, toCsv(fert.doses as unknown as Record<string, unknown>[]));
-    else if (tab === 'activity') downloadFile(`activity-${stamp()}.csv`, toCsv(activity));
+      rows = Object.entries(hist.series).flatMap(([sid, pts]) => pts.map(p => ({ sensor_id: sid, ts: p.ts, value: p.value, min: p.min ?? '', max: p.max ?? '', samples: p.n ?? '', quality: p.quality ?? '' })));
+      name = `${param}-${rangeId}-${hist.resolution}-${stamp()}.csv`;
+    } else if (tab === 'water') { rows = water as unknown as Record<string, unknown>[]; name = `water-usage-${stamp()}.csv`; }
+    else if (tab === 'fertilizer' && fert) { rows = fert.doses as unknown as Record<string, unknown>[]; name = `fertilizer-doses-${stamp()}.csv`; }
+    else if (tab === 'activity') { rows = activity; name = `activity-${stamp()}.csv`; }
+    if (!rows.length) throw new Error('Nothing shown here yet to save.');
+    await saveFile(name, csvBlob(toCsv(rows)));
   };
+  // The export panel starts from what the page shows.
+  const preset = useMemo<ExportPreset>(() => (
+    tab === 'environment' ? { datasets: ['readings'], types: [param], period: rangeId === '6h' || rangeId === '24h' ? '24h' : rangeId === '7d' ? '7d' : '30d' }
+      : tab === 'water' ? { datasets: ['water'], period: waterDays === 7 ? '7d' : '30d' }
+        : tab === 'fertilizer' ? { datasets: ['fertilizer'], period: '30d' }
+          : { datasets: ['activity', 'alerts'], period: '7d' }), [tab, param, rangeId, waterDays]);
 
   const maxL = Math.max(1, ...water.map(w => w.litres));
   const info = METRIC_INFO[param];
@@ -102,8 +115,9 @@ const Records: React.FC = () => {
         <StatusBanner />
         <div className="sg-row-between" style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--sg-text)' }}>Records</div>
-          <IonButton size="small" fill="outline" onClick={exportCsv} disabled={loading}>Export CSV</IonButton>
+          <IonButton size="small" fill={exporting ? 'solid' : 'outline'} onClick={() => setExporting(x => !x)}>Export</IonButton>
         </div>
+        {exporting && <ExportPanel preset={preset} onThisView={exportView} onClose={() => setExporting(false)} />}
         <IonSegment value={tab} onIonChange={e => setTab(e.detail.value as Tab)} scrollable style={{ marginBottom: 12 }}>
           <IonSegmentButton value="environment"><IonLabel>Sensors</IonLabel></IonSegmentButton>
           <IonSegmentButton value="water"><IonLabel>Water</IonLabel></IonSegmentButton>
@@ -128,7 +142,7 @@ const Records: React.FC = () => {
               resetKey={hc.resetKey} updated={{ at: hc.updatedAt, everyMs: hc.range.refresh }}
               rangeLabel={`last ${hc.range.id}`} band={band ? { min: band.min, max: band.max } : null} unit={` ${info.unit}`} digits={info.digits} height={180} />
             <div style={{ fontSize: 10, color: 'var(--sg-dim)', marginTop: 6 }}>
-              Raw readings are kept 7 days (pH 30 days); older data is kept as 15-minute averages. Export CSV saves the whole range as loaded ({hc.plan.res === 'raw' ? 'raw readings' : `${hc.plan.res} averages`}).
+              Raw readings are kept 7 days (pH 30 days); older data is kept as 15-minute averages. “This view as CSV” saves the range as loaded ({hc.plan.res === 'raw' ? 'raw readings' : `${hc.plan.res} averages`}); Export makes a file for any period.
             </div>
           </div>
         )}

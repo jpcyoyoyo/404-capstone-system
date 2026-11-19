@@ -7,6 +7,7 @@ import type {
   ActivePreset, CloudState, CloudTest, FertilizerReport, GreenhouseMeta, HistoryResult, PresetBands, PresetList, Reading,
   StageSchedule, Threshold, ThresholdPreset, UserItem, WaterDay, ZoneSummary,
 } from '../contract/types';
+import type { ExportFile, ExportQuery } from '../api/client';
 
 export type Link = 'local' | 'remote' | 'demo' | 'offline';
 
@@ -60,6 +61,8 @@ export interface DataService {
   audit(limit?: number): Promise<AuditEntry[]>;
   events(limit?: number, actuator?: string): Promise<EventEntry[]>;
   waterUsage(days?: number): Promise<WaterDay[]>;
+  /** Records as a file for Excel (controller only; demo mode rejects). */
+  exportData(q: ExportQuery): Promise<ExportFile>;
   fertilizer(days?: number): Promise<FertilizerReport>;
   calibrations(): Promise<CalibrationEntry[]>;
   calibrate(sensorId: string, body: CalibrationBody): Promise<{ constants: Record<string, unknown> }>;

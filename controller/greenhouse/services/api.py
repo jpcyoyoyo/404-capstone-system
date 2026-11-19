@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select, update
 
@@ -253,7 +253,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
     app = FastAPI(title="Smart Greenhouse API", version=__version__,
                   description="Controller API for the IoT-Enabled Smart Greenhouse (404 Brains Not Found).")
     app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
-                       allow_methods=["*"], allow_headers=["*"])
+                       allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Disposition"])
 
     # ── auth ────────────────────────────────────────────────────────────
     def current(authorization: str | None = Header(default=None)) -> dict:
@@ -1073,41 +1073,32 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
     @app.get("/reports/water-usage", tags=["reports"])
     def water_usage(user: dict = Depends(reader), days: int = Query(default=7, ge=1, le=90)):
         """Litres per local day, from the flow sensor when installed, else estimated from pump run time."""
-        t0 = utcnow() - timedelta(days=days)
-        from ..timeutil import local_time_of
-        per_day: dict[str, dict] = {}
-        flow = [s for s in reg.sensors_of("water_flow")]
-        with db.session() as s:
-            if flow:
-                rows = s.execute(select(SensorReading.recorded_at, SensorReading.value).where(
-                    SensorReading.sensor_id == flow[0].id, SensorReading.recorded_at >= t0,
-                    SensorReading.quality == "VALID").order_by(SensorReading.recorded_at)).all()
-                prev = None
-                for t, v in rows:
-                    if prev is not None and v is not None:
-                        dt = min((t - prev).total_seconds(), 120)
-                        d = local_time_of(t).date().isoformat()
-                        per_day.setdefault(d, {"litres": 0.0, "pump_minutes": 0.0, "method": "flow_sensor"})
-                        per_day[d]["litres"] += v * dt / 60.0
-                    prev = t
-            ev = s.execute(select(ActuatorEvent.occurred_at, ActuatorEvent.action).where(
-                ActuatorEvent.actuator_id == "pump", ActuatorEvent.action.in_(["ON", "OFF"]),
-                ActuatorEvent.occurred_at >= t0).order_by(ActuatorEvent.occurred_at)).all()
-        started = None
-        assumed_lpm = float(reg.control.get("assumed_flow_lpm", 6.0))
-        for t, a in ev:
-            if a == "ON":
-                started = t
-            elif started is not None:
-                d = local_time_of(started).date().isoformat()
-                row = per_day.setdefault(d, {"litres": 0.0, "pump_minutes": 0.0, "method": "estimated_from_run_time"})
-                mins = (t - started).total_seconds() / 60.0
-                row["pump_minutes"] += mins
-                if row["method"] != "flow_sensor":
-                    row["litres"] += mins * assumed_lpm
-                started = None
-        return [{"date": d, **{k: (round(v, 2) if isinstance(v, float) else v) for k, v in r.items()}}
-                for d, r in sorted(per_day.items())]
+        from ..export import water_days
+        now = utcnow()
+        return water_days(db, reg, now - timedelta(days=days), now + timedelta(seconds=1))
+
+    @app.get("/export", tags=["reports"])
+    def export(user: dict = Depends(reader), datasets: str = "readings",
+               frm: str | None = Query(default=None, alias="from"), to: str | None = None,
+               sensors: str = "", types: str = "", resolution: str = "raw", layout: str = "long", invalid: bool = False):
+        """Records as CSV ready for Excel: one dataset as a .csv, several as a .zip with a README (greenhouse/export.py).
+        datasets: readings, summary, water, fertilizer, activity, alerts, power (comma-separated)."""
+        from .. import export as exportmod
+        t1 = parse_iso(to) or utcnow()
+        t0 = parse_iso(frm) or (t1 - timedelta(hours=24))
+        split = lambda v: [x.strip() for x in v.split(",") if x.strip()]
+        rq = exportmod.ExportRequest(datasets=split(datasets), t0=t0, t1=t1, sensors=split(sensors), types=split(types),
+                                     resolution=resolution, layout=layout, invalid=invalid,
+                                     source="cloud server" if is_cloud else "greenhouse controller")
+        try:
+            rq.check(reg)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        name, media, body = exportmod.build(db, reg, rq)
+        audit(user["email"], "export", ",".join(rq.datasets),
+              {"from": iso(t0), "to": iso(t1), "resolution": resolution, "layout": layout, "file": name})
+        return StreamingResponse(body, media_type=media, headers={
+            "Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
     @app.get("/reports/fertilizer", tags=["reports"])
     def fertilizer(user: dict = Depends(reader), days: int = Query(default=30, ge=1, le=365)):

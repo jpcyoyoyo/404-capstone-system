@@ -252,6 +252,7 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
     audit: l => api.audit(l),
     events: (l, a) => api.events(l, a),
     waterUsage: d => api.waterUsage(d),
+    exportData: q => api.exportData(q),
     fertilizer: d => api.fertilizer(d),
     calibrations: () => api.calibrations(),
     calibrate: (id, b) => api.calibrate(id, b),
@@ -264,7 +265,7 @@ export const LiveProvider: React.FC<{ children: ReactNode; override?: LiveOverri
   } : {
     history: offline, thresholds: offline, putThresholds: offline, presets: offline, createPreset: offline,
     editPreset: offline, deletePreset: offline, applyPreset: offline, alerts: offline, ackAlert: offline, audit: offline,
-    events: offline, waterUsage: offline, fertilizer: offline, calibrations: offline, calibrate: offline, users: offline,
+    events: offline, waterUsage: offline, exportData: offline, fertilizer: offline, calibrations: offline, calibrate: offline, users: offline,
     addUser: offline, patchUser: offline, cloud: offline, cloudTest: offline, cloudSetup: offline,
   }, [api, loadAlerts, loadActivePreset, loadThresholds]);
 

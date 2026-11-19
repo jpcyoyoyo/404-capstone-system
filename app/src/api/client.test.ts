@@ -45,4 +45,24 @@ describe('token renewal', () => {
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ everywhere: false });
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ everywhere: true });
   });
+
+  it('downloads an export with the name the server gave it', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response('\ufeffa,b\r\n', {
+      status: 200, headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="greenhouse-alerts_2026-11-18.csv"' } }));
+    vi.stubGlobal('fetch', fetch);
+    const c = new ApiClient('http://pi:8000', { access: () => 't', refresh: async () => null });
+    const f = await c.exportData({ datasets: ['alerts', 'power'], from: '2026-11-18T00:00:00Z', to: '2026-11-19T00:00:00Z', resolution: '1h', layout: 'wide' });
+    expect(f.filename).toBe('greenhouse-alerts_2026-11-18.csv');
+    const url = new URL(fetch.mock.calls[0][0]);
+    expect(url.pathname).toBe('/export');
+    expect(url.searchParams.get('datasets')).toBe('alerts,power');
+    expect(url.searchParams.get('layout')).toBe('wide');
+  });
+
+  it('explains a refused export in the server\'s words', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(res(422, { detail: 'the period can be at most 400 days' })));
+    const c = new ApiClient('http://pi:8000', { access: () => 't', refresh: async () => null });
+    await expect(c.exportData({ datasets: ['readings'], from: 'a', to: 'b', resolution: 'raw', layout: 'long' }))
+      .rejects.toMatchObject({ status: 422, message: 'the period can be at most 400 days' });
+  });
 });

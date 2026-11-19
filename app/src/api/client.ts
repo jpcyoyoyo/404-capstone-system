@@ -63,6 +63,20 @@ export async function probe(base: string, ms = 2500): Promise<{ ok: boolean; rol
   }
 }
 
+/** What GET /export takes (controller/greenhouse/export.py). */
+export interface ExportQuery {
+  datasets: ExportDataset[];
+  from: string;             // ISO
+  to: string;
+  types?: string[];         // sensor types; empty: all
+  sensors?: string[];
+  resolution: 'raw' | '15m' | '1h' | '1d';
+  layout: 'long' | 'wide';
+  invalid?: boolean;
+}
+export type ExportDataset = 'readings' | 'summary' | 'water' | 'fertilizer' | 'activity' | 'alerts' | 'power';
+export interface ExportFile { blob: Blob; filename: string }
+
 export class ApiClient {
   constructor(public base: string, private tokens: TokenSource) {}
 
@@ -149,6 +163,35 @@ export class ApiClient {
   audit(limit = 200) { return this.request<AuditEntry[]>('GET', `/logs?kind=audit&limit=${limit}`); }
   events(limit = 200, actuator?: string) {
     return this.request<EventEntry[]>('GET', `/logs?kind=events&limit=${limit}${actuator ? `&actuator=${actuator}` : ''}`);
+  }
+
+  /** Records as a .csv (one dataset) or a .zip (several); allows two minutes for long periods. */
+  async exportData(q: ExportQuery, retry = true): Promise<ExportFile> {
+    const p = new URLSearchParams({
+      datasets: q.datasets.join(','), from: q.from, to: q.to, types: (q.types ?? []).join(','),
+      sensors: (q.sensors ?? []).join(','), resolution: q.resolution, layout: q.layout, invalid: String(!!q.invalid),
+    });
+    const tok = this.tokens.access();
+    const headers: Record<string, string> = { Accept: 'text/csv, application/zip, application/json' };
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+    let r: Response;
+    try {
+      r = await fetchWithTimeout(`${this.base}/export?${p.toString()}`, { method: 'GET', headers }, 120_000);
+    } catch (e) {
+      throw new ApiError(0, e instanceof Error && e.name === 'AbortError' ? 'The export took too long. Try a shorter period or averages.' : 'Cannot reach the controller.');
+    }
+    if (r.status === 401 && retry && tok) {
+      const fresh = await this.tokens.refresh();
+      if (fresh) return this.exportData(q, false);
+    }
+    if (!r.ok) {
+      let msg = `${r.status} ${r.statusText}`;
+      try { const d = (await r.json()).detail; if (typeof d === 'string') msg = d; } catch { /* not JSON */ }
+      throw new ApiError(r.status, msg);
+    }
+    const cd = r.headers.get('Content-Disposition') ?? '';
+    const filename = /filename="([^"]+)"/.exec(cd)?.[1] ?? `greenhouse-export.${q.datasets.length > 1 ? 'zip' : 'csv'}`;
+    return { blob: await r.blob(), filename };
   }
 
   // reports, calibration, users

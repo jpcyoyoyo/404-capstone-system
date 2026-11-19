@@ -71,6 +71,7 @@ export const DemoProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     audit: (limit = 200) => later(() => engine.audit.slice(0, limit)),
     events: (limit = 200, actuator) => later(() => engine.events.filter(e => !actuator || e.actuator_id === actuator).slice(0, limit)),
     waterUsage: days => later(() => engine.waterUsage(days)),
+    exportData: () => later(() => { throw new Error('Export files come from the controller. In demo mode, use “This view as CSV”.'); }, 200),
     fertilizer: days => later(() => engine.fertilizer(days)),
     calibrations: () => later(() => engine.calibrationList()),
     calibrate: (id, body) => later(() => engine.calibrate(id, body, whoRef.current)),

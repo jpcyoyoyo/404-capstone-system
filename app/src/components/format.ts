@@ -39,7 +39,8 @@ export function initials(name: string | undefined): string {
 }
 
 export function downloadFile(name: string, content: string, type = 'text/csv') {
-  const blob = new Blob([content], { type });
+  // A byte-order mark makes Excel read the CSV as UTF-8 (°C, µS/cm, names with ñ).
+  const blob = new Blob([type.startsWith('text/csv') ? '\ufeff' + content : content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
