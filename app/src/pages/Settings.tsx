@@ -46,8 +46,12 @@ const Users: React.FC = () => {
       load();
     } catch (e) { toast({ message: e instanceof Error ? e.message : 'Could not create the account.', duration: 3500, color: 'danger', position: 'top' }); }
   };
-  const patch = async (u: UserItem, p: Partial<{ role: 'admin' | 'viewer'; active: boolean }>) => {
-    try { await gh.data.patchUser(u.id, p); load(); }
+  const patch = async (u: UserItem, p: Partial<{ role: 'admin' | 'viewer'; active: boolean; sign_out: boolean }>) => {
+    try {
+      await gh.data.patchUser(u.id, p);
+      if (p.sign_out) toast({ message: `${u.name} was signed out on every device.`, duration: 2500, color: 'success', position: 'top' });
+      load();
+    }
     catch (e) { toast({ message: e instanceof Error ? e.message : 'Update failed.', duration: 3500, color: 'danger', position: 'top' }); }
   };
 
@@ -66,13 +70,18 @@ const Users: React.FC = () => {
               <span className={`sg-pill ${u.role === 'admin' ? 'sg-pill-ok' : 'sg-pill-info'}`}>{u.role}</span>
             </div>
             {u.email !== session?.user.email && (
-              <div className="sg-row sg-gap-8" style={{ marginTop: 8 }}>
+              <div className="sg-row sg-gap-8" style={{ marginTop: 8, flexWrap: 'wrap' }}>
                 <IonButton size="small" fill="outline" onClick={() => patch(u, { role: u.role === 'admin' ? 'viewer' : 'admin' })}>
                   Make {u.role === 'admin' ? 'viewer' : 'admin'}
                 </IonButton>
                 <IonButton size="small" fill="outline" color={u.active ? 'danger' : 'success'} onClick={() => patch(u, { active: !u.active })}>
                   {u.active ? 'Disable' : 'Enable'}
                 </IonButton>
+                {u.active && (
+                  <IonButton size="small" fill="outline" color="medium" onClick={() => patch(u, { sign_out: true })}>
+                    Sign out everywhere
+                  </IonButton>
+                )}
               </div>
             )}
           </div>

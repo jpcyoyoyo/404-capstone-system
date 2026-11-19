@@ -245,6 +245,18 @@ class PushSubscription(Base):
     last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
+class RevokedSession(Base):
+    """A signed-out device (19 Nov 2026). Every sign-in gets a session id ("sid" in its tokens);
+    signing out on one device lists that id here, so its tokens stop working while the account's
+    other devices stay signed in. Kept until the session's tokens would have expired anyway.
+    Replicated both ways between the Pi and the cloud (services/sync.py)."""
+    __tablename__ = "revoked_sessions"
+    sid: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
 class KeyValue(Base):
     __tablename__ = "kv"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -256,4 +268,5 @@ class KeyValue(Base):
 SYNCED_APPEND_TABLES = [SensorReading, ActuatorEvent, AuditLog, FertigationDose, Calibration]
 # Small tables replicated whole on every sync pass. Users travel too (password hashes only) so the
 # same accounts work on the remote path; the cloud must use the same GH_JWT_SECRET as the Pi.
-SYNCED_SNAPSHOT_TABLES = [Zone, Sensor, Actuator, GrowthStage, Threshold, ThresholdPreset, Alert, KeyValue, User]
+SYNCED_SNAPSHOT_TABLES = [Zone, Sensor, Actuator, GrowthStage, Threshold, ThresholdPreset, Alert, KeyValue, User,
+                          RevokedSession]

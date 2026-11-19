@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select, update
 
 from .. import __version__
-from ..auth import decode_token, make_token, verify_password
+from ..auth import CLOCK_LEEWAY, decode_token, make_token, verify_password
 from ..bus import Bus, Topics
 from ..calibration import two_point_fit
 from ..config import Settings
@@ -29,7 +29,8 @@ from ..control.types import Reading as CReading
 from ..db import Database
 from ..fertigation import fertigation_meta
 from ..models import (Actuator, ActuatorEvent, Alert, AuditLog, Calibration, Command, FertigationDose,
-                      GrowthStage, Sensor, SensorReading, SensorReading15m, Threshold, ThresholdPreset, User)
+                      GrowthStage, RevokedSession, Sensor, SensorReading, SensorReading15m, Threshold,
+                      ThresholdPreset, User)
 from ..registry import PARAMS, Registry
 from .. import cloud as cloudmod
 from .. import netctl
@@ -108,6 +109,10 @@ class LoginIn(BaseModel):
 
 class RefreshIn(BaseModel):
     refresh_token: str
+
+
+class LogoutIn(BaseModel):
+    everywhere: bool = False      # True: every device signed in to this account
 
 
 class PasswordIn(BaseModel):
@@ -207,6 +212,7 @@ class UserPatch(BaseModel):
     role: Literal["admin", "viewer"] | None = None
     active: bool | None = None
     password: str | None = Field(default=None, min_length=8)
+    sign_out: bool | None = None   # True: sign this account out on every device
 
 
 class SyncIn(BaseModel):
@@ -262,12 +268,27 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         if claims.get("role") != "kiosk":
             with db.session() as s:
                 u = s.get(User, int(claims["sub"]))
-                if not u or not u.active or u.token_version != claims.get("ver"):
+                if not u or not u.active or not session_current(u, claims) or signed_out(s, claims):
                     raise HTTPException(401, "session revoked")
-                claims["email"], claims["name"] = u.email, u.name
+                # The role is read from the account, so an admin's change applies at once without
+                # signing the person out.
+                claims["email"], claims["name"], claims["role"] = u.email, u.name, u.role
         else:
             claims["email"], claims["name"] = "kiosk", "Kiosk display"
         return claims
+
+    def session_current(u: User, claims: dict) -> bool:
+        """A sign-out, password change or account edit raises token_version, so older tokens stop
+        working. A token with a higher version is newer than this copy of the account: it was
+        issued on the other server (Pi or cloud) after a change that has not reached this one yet
+        (sync.ingest_users carries it across within a minute), so it is accepted."""
+        return int(claims.get("ver", -1)) >= u.token_version
+
+    def signed_out(s, claims: dict) -> bool:
+        """This device was signed out (models.RevokedSession). Tokens from before 19 Nov 2026 carry no
+        session id; they get one at their next renewal."""
+        sid = claims.get("sid")
+        return bool(sid) and s.get(RevokedSession, sid) is not None
 
     def admin(user: dict = Depends(current)) -> dict:
         if user.get("role") != "admin":
@@ -281,11 +302,15 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "active": u.active,
                 "last_login_at": iso(u.last_login_at), "created_at": iso(u.created_at)}
 
-    def tokens_for(u: User, request: Request | None = None) -> dict:
+    def tokens_for(u: User, request: Request | None = None, sid: str | None = None) -> dict:
+        """Tokens for one device's session: a new sign-in gets a new session id, a renewal keeps it."""
+        sid = sid or uuid.uuid4().hex
         access = make_token(settings.jwt_secret, sub=str(u.id), role=u.role, kind="access",
-                            ttl=timedelta(minutes=settings.access_token_minutes), ver=u.token_version)
+                            ttl=timedelta(minutes=settings.access_token_minutes), ver=u.token_version,
+                            extra={"sid": sid})
         refresh = make_token(settings.jwt_secret, sub=str(u.id), role=u.role, kind="refresh",
-                             ttl=timedelta(days=settings.refresh_token_days), ver=u.token_version)
+                             ttl=timedelta(days=settings.refresh_token_days), ver=u.token_version,
+                             extra={"sid": sid})
         return {"access_token": access, "refresh_token": refresh, "token_type": "bearer",
                 "expires_in": settings.access_token_minutes * 60, "user": user_payload(u), "mqtt": mqtt_info(request)}
 
@@ -325,18 +350,26 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
             raise HTTPException(401, "not a refresh token")
         with db.session() as s:
             u = s.get(User, int(claims["sub"]))
-            if not u or not u.active or u.token_version != claims.get("ver"):
+            if not u or not u.active or not session_current(u, claims) or signed_out(s, claims):
                 raise HTTPException(401, "session revoked")
-            return tokens_for(u, request)
+            u.token_version = max(u.token_version, int(claims.get("ver", 0)))
+            return tokens_for(u, request, claims.get("sid"))
 
     @app.post("/auth/logout", tags=["auth"])
-    def logout(user: dict = Depends(current)):
-        """Revokes every session for this user (all devices)."""
+    def logout(body: LogoutIn | None = None, user: dict = Depends(current)):
+        """Signs this device out; with {"everywhere": true}, every device signed in to this account."""
+        everywhere = bool(body and body.everywhere)
         if user.get("role") != "kiosk":
             with db.session() as s:
-                u = s.get(User, int(user["sub"]))
-                u.token_version += 1
-        return {"ok": True}
+                if everywhere:
+                    s.get(User, int(user["sub"])).token_version += 1
+                elif user.get("sid"):
+                    now = utcnow()
+                    s.merge(RevokedSession(sid=user["sid"], user_id=int(user["sub"]), revoked_at=now,
+                                           expires_at=now + timedelta(days=settings.refresh_token_days)
+                                           + CLOCK_LEEWAY))
+            audit(user["email"], "logout_everywhere" if everywhere else "logout", "auth")
+        return {"ok": True, "everywhere": everywhere}
 
     @app.get("/auth/me", tags=["auth"])
     def me(user: dict = Depends(current)):
@@ -353,9 +386,9 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
             if not verify_password(u.password_hash, body.current_password):
                 raise HTTPException(400, "current password is wrong")
             u.password_hash = hash_password(body.new_password)
-            u.token_version += 1
+            u.token_version += 1          # the other devices are signed out; this one gets new tokens
             s.flush()
-            out = tokens_for(u, request)
+            out = tokens_for(u, request, user.get("sid"))
         audit(user["email"], "password_changed", f"user:{user['email']}")
         return out
 
@@ -1165,6 +1198,9 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
 
     @app.post("/users", tags=["users"])
     def add_user(body: UserIn, user: dict = Depends(admin)):
+        if is_cloud:    # a new id made here could clash with the Pi's next account
+            raise HTTPException(409, "Add accounts on the greenhouse controller (on the greenhouse Wi-Fi); "
+                                     "they reach the cloud server within a minute.")
         try:
             u = create_user(db, body.email, body.password, body.name, body.role)
         except ValueError as e:
@@ -1189,7 +1225,11 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
                 u.active = body.active
             if body.password:
                 u.password_hash = hash_password(body.password)
-            u.token_version += 1   # any change signs the user out everywhere
+            # A new password, or the admin's "sign out everywhere", ends the person's sessions on every
+            # device. A name or role change does not (the role is read from the account on each
+            # request); a deactivated account is refused on its next request anyway.
+            if body.password or body.sign_out:
+                u.token_version += 1
             out = user_payload(u)
         audit(user["email"], "user_updated", f"user:{out['email']}", body.model_dump(exclude={"password"}, exclude_none=True))
         return out
@@ -1202,8 +1242,14 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
         if not settings.sync_token or authorization != f"Bearer {settings.sync_token}":
             raise HTTPException(401, "bad sync token")
         fresh = push.fresh_alerts(body.rows) if body.table == "alerts" else []   # before they are stored
+        newer: list[dict] = []
         try:
-            n = syncmod.ingest(db, body.table, body.rows)
+            if body.table == "users":       # accounts changed here are kept and sent back to the Pi
+                n, newer = syncmod.ingest_users(db, body.rows)
+            elif body.table == "revoked_sessions":   # devices signed out here go back to the Pi
+                n, newer = syncmod.ingest_revocations(db, body.rows)
+            else:
+                n = syncmod.ingest(db, body.table, body.rows)
         except ValueError as e:
             raise HTTPException(422, str(e))
         push.alerts(fresh)
@@ -1215,7 +1261,7 @@ def create_app(settings: Settings, reg: Registry, db: Database, bus: Bus, networ
                     cache.readings[sid] = {"sensor_id": sid, "zone_id": sd.zone, "type": sd.type, "value": r.get("value"),
                                            "unit": r.get("unit"), "raw": r.get("raw"), "quality": r.get("quality"),
                                            "ts": iso(parse_iso(r.get("recorded_at")))}
-        return {"ok": True, "rows": n}
+        return {"ok": True, "rows": n, **({body.table: newer} if newer else {})}
 
     # ── dev: fault injection ────────────────────────────────────────────
     if settings.enable_sim_api:

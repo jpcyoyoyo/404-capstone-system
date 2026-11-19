@@ -4,7 +4,7 @@
  * labelled demo session that never reaches hardware.
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
-import { ApiClient, ApiError } from '../api/client';
+import { ApiClient, ApiError, signInRefused } from '../api/client';
 import type { MqttInfo, SessionUser, TokenResponse } from '../contract/types';
 import { useConnection } from './ConnectionContext';
 import { disablePush } from '../components/push';
@@ -30,7 +30,10 @@ interface AuthApi {
   /** REST client for the active controller path; null in demo mode or while offline. */
   api: ApiClient | null;
   login: (email: string, password: string) => Promise<LoginResult>;
+  /** Signs this device out; the account's other devices stay signed in. */
   logout: () => void;
+  /** Signs this account out on every device (needs the server to answer). */
+  logoutEverywhere: () => Promise<LoginResult>;
   changePassword: (current: string, next: string) => Promise<LoginResult>;
 }
 
@@ -65,6 +68,7 @@ function fromTokens(t: TokenResponse, base: string): Session {
 const Ctx = createContext<AuthApi>({
   session: null, isAuthenticated: false, isAdmin: false, api: null,
   login: async () => ({ ok: false, error: 'Auth not ready' }), logout: () => {},
+  logoutEverywhere: async () => ({ ok: false, error: 'Auth not ready' }),
   changePassword: async () => ({ ok: false, error: 'Auth not ready' }),
 });
 
@@ -106,7 +110,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               setSession(next);
               sessionRef.current = next;
               return next.token;
-            } catch {
+            } catch (e) {
+              // Only a refusal from the server ends the sign-in; with no connection the request
+              // fails with that error and the next one tries again (api/client.ts, signInRefused).
+              if (!signInRefused(e)) throw e;
               setSession(null);
               return null;
             } finally {
@@ -155,6 +162,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setSession(null);
   }, [api]);
 
+  const logoutEverywhere = useCallback(async (): Promise<LoginResult> => {
+    const s = sessionRef.current;
+    if (s?.mode !== 'live') { setSession(null); return { ok: true }; }
+    if (!api) return { ok: false, error: 'Not connected to the controller, so the other devices cannot be signed out. Try again when connected.' };
+    const token = s.token;
+    const c = new ApiClient(api.base, { access: () => token, refresh: async () => null });
+    try {
+      await disablePush(c).catch(() => { /* this device's notifications: best effort */ });
+      await c.logout(true);
+    } catch (e) {
+      return { ok: false, error: `${e instanceof Error ? e.message : 'Sign-out failed.'} Your devices are still signed in.` };
+    }
+    setSession(null);
+    return { ok: true };
+  }, [api]);
+
   const changePassword = useCallback(async (current: string, next: string): Promise<LoginResult> => {
     if (next.length < 8) return { ok: false, error: 'Use at least 8 characters.' };
     const s = sessionRef.current;
@@ -172,7 +195,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const value: AuthApi = {
     session, isAuthenticated: !!session && session.mode === conn.mode,
-    isAdmin: session?.user.role === 'admin', api, login, logout, changePassword,
+    isAdmin: session?.user.role === 'admin', api, login, logout, logoutEverywhere, changePassword,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 };

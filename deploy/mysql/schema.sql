@@ -117,6 +117,49 @@ CREATE TABLE kv (
 	PRIMARY KEY (`key`)
 );
 
+CREATE TABLE power_events (
+	id BIGINT NOT NULL AUTO_INCREMENT, 
+	kind VARCHAR(16) NOT NULL, 
+	boot_id VARCHAR(40), 
+	started_at DATETIME, 
+	ended_at DATETIME, 
+	duration_s FLOAT, 
+	message VARCHAR(255) NOT NULL, 
+	detail JSON, 
+	recorded_at DATETIME NOT NULL, 
+	PRIMARY KEY (id)
+);
+CREATE INDEX ix_power_events_boot_id ON power_events (boot_id);
+CREATE INDEX ix_power_events_ended_at ON power_events (ended_at);
+
+CREATE TABLE push_subscriptions (
+	id INTEGER NOT NULL AUTO_INCREMENT, 
+	endpoint_hash VARCHAR(64) NOT NULL, 
+	endpoint TEXT NOT NULL, 
+	p256dh VARCHAR(200) NOT NULL, 
+	auth VARCHAR(64) NOT NULL, 
+	user_id INTEGER NOT NULL, 
+	level VARCHAR(10) NOT NULL, 
+	label VARCHAR(120) NOT NULL, 
+	created_at DATETIME NOT NULL, 
+	last_sent_at DATETIME, 
+	failures INTEGER NOT NULL, 
+	last_error VARCHAR(200), 
+	PRIMARY KEY (id)
+);
+CREATE UNIQUE INDEX ix_push_subscriptions_endpoint_hash ON push_subscriptions (endpoint_hash);
+CREATE INDEX ix_push_subscriptions_user_id ON push_subscriptions (user_id);
+
+CREATE TABLE revoked_sessions (
+	sid VARCHAR(32) NOT NULL, 
+	user_id INTEGER NOT NULL, 
+	revoked_at DATETIME NOT NULL, 
+	expires_at DATETIME NOT NULL, 
+	PRIMARY KEY (sid)
+);
+CREATE INDEX ix_revoked_sessions_expires_at ON revoked_sessions (expires_at);
+CREATE INDEX ix_revoked_sessions_user_id ON revoked_sessions (user_id);
+
 CREATE TABLE sensor_readings (
 	id BIGINT NOT NULL AUTO_INCREMENT, 
 	sensor_id VARCHAR(40) NOT NULL, 

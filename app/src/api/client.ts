@@ -12,8 +12,19 @@ export class ApiError extends Error {
 
 export interface TokenSource {
   access(): string | null;
-  /** Called once on a 401; returns a fresh access token or null (signed out). */
+  /** Called once on a 401; returns a fresh access token or null (signed out). It throws when the
+   *  server could not be asked (no connection, timeout, server error): the sign-in is kept. */
   refresh(): Promise<string | null>;
+}
+
+/**
+ * Whether a failed token renewal means the server refused the sign-in (expired, signed out, password
+ * changed, account deactivated), so the app should sign out. Anything else (no connection, a time-out,
+ * a server error while switching between the controller and the cloud) keeps the sign-in: before
+ * 19 Nov 2026 those also signed people out.
+ */
+export function signInRefused(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 401 || e.status === 403);
 }
 
 const TIMEOUT_MS = 12_000;
@@ -87,7 +98,8 @@ export class ApiClient {
   // auth (no bearer needed)
   login(email: string, password: string) { return this.request<TokenResponse>('POST', '/auth/login', { email, password }, false); }
   refreshToken(refresh_token: string) { return this.request<TokenResponse>('POST', '/auth/refresh', { refresh_token }, false); }
-  logout() { return this.request<{ ok: boolean }>('POST', '/auth/logout'); }
+  /** Signs this device out; `everywhere`: every device signed in to this account. */
+  logout(everywhere = false) { return this.request<{ ok: boolean; everywhere?: boolean }>('POST', '/auth/logout', { everywhere }); }
   changePassword(current_password: string, new_password: string) {
     return this.request<TokenResponse>('POST', '/auth/password', { current_password, new_password });
   }
@@ -146,7 +158,7 @@ export class ApiClient {
   calibrate(sensorId: string, body: CalibrationBody) { return this.request<{ constants: Record<string, unknown> }>('POST', `/calibration/${sensorId}`, body); }
   users() { return this.request<UserItem[]>('GET', '/users'); }
   addUser(u: { email: string; name: string; password: string; role: 'admin' | 'viewer' }) { return this.request<UserItem>('POST', '/users', u); }
-  patchUser(id: number, patch: Partial<{ name: string; role: 'admin' | 'viewer'; active: boolean; password: string }>) {
+  patchUser(id: number, patch: Partial<{ name: string; role: 'admin' | 'viewer'; active: boolean; password: string; sign_out: boolean }>) {
     return this.request<UserItem>('PATCH', `/users/${id}`, patch);
   }
   // cloud server (required) and network settings (greenhouse display)

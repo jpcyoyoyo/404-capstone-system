@@ -14,10 +14,13 @@ const input: React.CSSProperties = {
 
 const Profile: React.FC = () => {
   const history = useHistory();
-  const { session, logout, changePassword } = useAuth();
+  const { session, logout, logoutEverywhere, changePassword } = useAuth();
   const conn = useConnection();
   const gh = useGreenhouse();
   const [confirm, setConfirm] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [allMsg, setAllMsg] = useState<string | null>(null);
+  const [signingOutAll, setSigningOutAll] = useState(false);
   const [pw, setPw] = useState({ current: '', next: '', again: '' });
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -27,6 +30,16 @@ const Profile: React.FC = () => {
     if (!confirm) { setConfirm(true); return; }
     logout();
     history.replace('/login');
+  };
+
+  const signOutAll = async () => {
+    if (!confirmAll) { setConfirmAll(true); setAllMsg(null); return; }
+    setSigningOutAll(true);
+    const r = await logoutEverywhere();
+    setSigningOutAll(false);
+    setConfirmAll(false);
+    if (r.ok) history.replace('/login');
+    else setAllMsg(r.error);
   };
 
   const savePw = async () => {
@@ -86,7 +99,22 @@ const Profile: React.FC = () => {
           style={{ '--background': confirm ? '#ef4444' : 'rgba(239,68,68,0.12)', '--color': confirm ? '#fff' : '#ef4444', '--border-radius': '12px', fontWeight: 700, marginTop: 8 }}>
           {confirm ? 'Tap again to sign out' : 'Sign out'}
         </IonButton>
-        {session?.mode === 'live' && <div style={{ fontSize: 11, color: 'var(--sg-dim)', textAlign: 'center', marginTop: 6 }}>Signing out ends your sessions on all devices.</div>}
+        {session?.mode === 'live' && (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--sg-dim)', textAlign: 'center', marginTop: 6 }}>
+              Signs out this device only. Anyone else using this account stays signed in.
+            </div>
+            <IonButton expand="block" fill="clear" onClick={signOutAll} disabled={signingOutAll}
+              style={{ '--color': '#ef4444', fontWeight: 600, marginTop: 10 }}>
+              {signingOutAll ? 'Signing out…' : confirmAll ? 'Tap again to sign out of all devices' : 'Sign out of all devices'}
+            </IonButton>
+            <div style={{ fontSize: 11, color: 'var(--sg-dim)', textAlign: 'center' }}>
+              Ends every session of this account, on every phone and computer: use it if a device was lost or the
+              password may be known to someone else.
+            </div>
+            {allMsg && <div style={{ fontSize: 12, color: '#ef4444', textAlign: 'center', marginTop: 6 }}>{allMsg}</div>}
+          </>
+        )}
       </IonContent>
     </IonPage>
   );

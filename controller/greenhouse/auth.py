@@ -34,8 +34,15 @@ def make_token(secret: str, *, sub: str, role: str, kind: str, ttl: timedelta, v
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
+# Tokens move between the Pi and the cloud server, whose clocks can differ: the Pi has no clock
+# battery yet and has been seen minutes slow until it reaches internet time, and further behind
+# after a power cut with no internet. So the issue time is not checked (a token "issued in the
+# future" was refused, which signed people out), and expiry allows a few minutes either way.
+CLOCK_LEEWAY = timedelta(minutes=5)
+
+
 def decode_token(secret: str, token: str) -> dict[str, Any]:
-    return jwt.decode(token, secret, algorithms=["HS256"])
+    return jwt.decode(token, secret, algorithms=["HS256"], leeway=CLOCK_LEEWAY, options={"verify_iat": False})
 
 
 from datetime import datetime as _dt  # noqa: E402

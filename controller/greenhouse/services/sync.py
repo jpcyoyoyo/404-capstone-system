@@ -4,7 +4,12 @@ Small tables (zones, sensors, thresholds, alerts, accounts, …) are sent whole 
 cloud server has its settings and sign-ins within the first minute. Append-only tables follow in
 id order behind a per-table watermark, so an outage — or the backlog on a first connection —
 simply resumes where it stopped: no gaps and no duplicates (the cloud upserts by primary key,
-one statement per chunk of rows). The cloud is never authoritative (§1.1).
+one statement per chunk of rows). The cloud is never authoritative (§1.1), with one exception:
+accounts. Signing out, changing a password or editing an account on the cloud raises the account's
+token_version there; the cloud then keeps that account when the Pi's older copy arrives and sends
+it back in the reply, and the Pi takes it (``ingest_users``, ``apply_cloud_users``). Before 19 Nov
+2026 the Pi's copy overwrote it every minute, which undid those changes and signed people out.
+Signed-out devices (``revoked_sessions``) are merged both ways in the same way.
 
 The cloud server is required in production: when it is not set up, or cannot be reached, each pass
 records why (greenhouse/cloud.py) and the control service raises an alert. Nothing is lost while the
@@ -15,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from typing import Any
@@ -22,7 +28,7 @@ from typing import Any
 from sqlalchemy import inspect as sa_inspect, select
 
 from ..db import Database
-from ..models import SYNCED_APPEND_TABLES, SYNCED_SNAPSHOT_TABLES, Alert, KeyValue
+from ..models import SYNCED_APPEND_TABLES, SYNCED_SNAPSHOT_TABLES, Alert, KeyValue, RevokedSession, User
 from ..timeutil import parse_iso, utcnow
 
 log = logging.getLogger(__name__)
@@ -109,6 +115,69 @@ def ingest(db: Database, table: str, rows: list[dict[str, Any]]) -> int:
     return len(rows)
 
 
+# What one side of an account can change and the other must take over.
+ACCOUNT_FIELDS = ("name", "role", "active", "password_hash", "token_version")
+
+
+def ingest_users(db: Database, rows: list[dict[str, Any]]) -> tuple[int, list[dict[str, Any]]]:
+    """The Pi's accounts, on the cloud. An account whose token_version is higher here than in the
+    Pi's copy was changed on the cloud: it is kept, and returned so the Pi can take it over."""
+    ids = [r.get("id") for r in rows if r.get("id") is not None]
+    with db.session() as s:
+        here = {u.id: u for u in s.execute(select(User).where(User.id.in_(ids))).scalars()} if ids else {}
+        newer = [{"id": u.id, "email": u.email, **{f: getattr(u, f) for f in ACCOUNT_FIELDS}}
+                 for r in rows if (u := here.get(r.get("id"))) is not None
+                 and u.token_version > int(r.get("token_version") or 0)]
+    keep = {d["id"] for d in newer}
+    n = ingest(db, "users", [r for r in rows if r.get("id") not in keep])
+    return n + len(keep), newer
+
+
+def apply_cloud_users(db: Database, rows: list[dict[str, Any]]) -> int:
+    """On the Pi: take over accounts the cloud changed (a sign-out, a new password, an edit)."""
+    n = 0
+    with db.session() as s:
+        for d in rows:
+            u = s.get(User, d.get("id"))
+            if u is None or u.email != d.get("email") or int(d.get("token_version") or 0) <= u.token_version:
+                continue
+            for f in ACCOUNT_FIELDS:
+                if f in d:
+                    setattr(u, f, d[f])
+            n += 1
+    if n:
+        log.info("took over %d account change(s) made on the cloud server", n)
+    return n
+
+
+def _prune_revocations(s) -> None:
+    """Signed-out sessions whose tokens have expired anyway are no longer needed."""
+    from sqlalchemy import delete
+    s.execute(delete(RevokedSession).where(RevokedSession.expires_at < utcnow()))
+
+
+def ingest_revocations(db: Database, rows: list[dict[str, Any]]) -> tuple[int, list[dict[str, Any]]]:
+    """Devices signed out on the Pi, on the cloud; returns those signed out on the cloud that the Pi
+    has not listed yet, for the Pi to add (a sign-out on either server ends that device everywhere)."""
+    n = ingest(db, "revoked_sessions", rows)
+    sent = {r.get("sid") for r in rows}
+    with db.session() as s:
+        _prune_revocations(s)
+        extra = [row_to_dict(r) for r in s.execute(select(RevokedSession)).scalars() if r.sid not in sent]
+    return n, extra
+
+
+def apply_cloud_revocations(db: Database, rows: list[dict[str, Any]]) -> int:
+    """On the Pi: add the devices signed out on the cloud."""
+    n = 0
+    with db.session() as s:
+        for d in rows:
+            if d.get("sid") and s.get(RevokedSession, d["sid"]) is None:
+                s.add(dict_to_row(RevokedSession, d))
+                n += 1
+    return n
+
+
 class SyncService:
     """Pushes the controller's data to the cloud server.
 
@@ -133,18 +202,23 @@ class SyncService:
             self.cloud_url, self.token = (cfg.url.rstrip("/") if cfg.url else None), cfg.token
         return bool(self.cloud_url and self.token)
 
-    def _post(self, table: str, rows: list[dict]) -> None:
+    def _post(self, table: str, rows: list[dict]) -> dict | None:
+        """Send one batch; returns the cloud's reply (JSON), if any."""
         if self._fixed_post is not None:
             return self._fixed_post(table, rows)
         return self._http_post(table, rows)
 
-    def _http_post(self, table: str, rows: list[dict]) -> None:
+    def _http_post(self, table: str, rows: list[dict]) -> dict | None:
         body = json.dumps({"table": table, "rows": rows}).encode()
         req = urllib.request.Request(f"{self.cloud_url}/sync/ingest", data=body, method="POST",
                                      headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"})
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
             if r.status >= 300:
                 raise RuntimeError(f"cloud returned {r.status}")
+            try:
+                return json.loads(r.read() or b"null")
+            except ValueError:
+                return None
 
     def sync_once(self, progress=None) -> int:
         """Send everything new. ``progress(rows)`` is called after each accepted request, so the
@@ -159,14 +233,27 @@ class SyncService:
 
         for model in SYNCED_SNAPSHOT_TABLES:
             with self.db.session() as s:
+                if model is RevokedSession:
+                    _prune_revocations(s)
                 q = select(model)
                 if model is Alert:
                     q = q.where((Alert.resolved_at.is_(None)) | (Alert.raised_at > utcnow() - timedelta(days=7)))
                 if model is KeyValue:   # the cloud token and connection status stay on the Pi
                     q = q.where(~KeyValue.key.startswith(CLOUD_PREFIX))
                 batch = [row_to_dict(r) for r in s.execute(q).scalars().all()]
-            if batch:
-                self._post(model.__tablename__, batch)
+            # Signed-out devices are asked for even when the Pi has none, so sign-outs on the cloud come back.
+            if batch or model is RevokedSession:
+                try:
+                    reply = self._post(model.__tablename__, batch)
+                except urllib.error.HTTPError as e:
+                    if model is RevokedSession and e.code == 422:   # a cloud server from before 19 Nov 2026
+                        log.debug("cloud server does not take signed-out devices yet; update it")
+                        continue
+                    raise
+                if isinstance(reply, dict) and model is User and reply.get("users"):
+                    apply_cloud_users(self.db, reply["users"])
+                if isinstance(reply, dict) and model is RevokedSession and reply.get("revoked_sessions"):
+                    apply_cloud_revocations(self.db, reply["revoked_sessions"])
                 accepted(len(batch))
         for model in SYNCED_APPEND_TABLES:
             key = f"sync:{model.__tablename__}"

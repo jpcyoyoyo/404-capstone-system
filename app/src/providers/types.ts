@@ -65,7 +65,7 @@ export interface DataService {
   calibrate(sensorId: string, body: CalibrationBody): Promise<{ constants: Record<string, unknown> }>;
   users(): Promise<UserItem[]>;
   addUser(u: { email: string; name: string; password: string; role: 'admin' | 'viewer' }): Promise<UserItem>;
-  patchUser(id: number, patch: Partial<{ name: string; role: 'admin' | 'viewer'; active: boolean; password: string }>): Promise<UserItem>;
+  patchUser(id: number, patch: Partial<{ name: string; role: 'admin' | 'viewer'; active: boolean; password: string; sign_out: boolean }>): Promise<UserItem>;
   /** Connection to the cloud server (required). Set-up is admin-only, on the greenhouse network. */
   cloud(): Promise<CloudState>;
   cloudTest(p: { url?: string; token?: string }): Promise<CloudTest>;
